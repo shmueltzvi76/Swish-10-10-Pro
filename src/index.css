@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  background-color: #0F1115;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.journal-content:empty::before {
+  content: attr(data-placeholder);
+  color: #596070;
+  pointer-events: none;
+}
+
+.journal-content ul {
+  list-style: disc;
+  padding-inline-start: 1.5em;
+}
+
+.journal-content ol {
+  list-style: decimal;
+  padding-inline-start: 1.5em;
+}
+
+.journal-content b,
+.journal-content strong {
+  font-weight: 700;
+}
