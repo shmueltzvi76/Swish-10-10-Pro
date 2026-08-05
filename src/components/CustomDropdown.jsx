@@ -12,13 +12,13 @@ export default function CustomDropdown({ value, options, onChange, icon: Icon })
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between bg-[#161920] text-white font-bold text-sm border border-[#3A4155] rounded-xl py-3 px-4 focus:outline-none focus:border-[#FF8A00] shadow-sm transition-all"
       >
-        <div className="flex items-center gap-2">
-          {Icon && <Icon size={16} className="text-[#FF8A00]" />}
+        <div className="flex items-center gap-2 min-w-0">
+          {Icon && <Icon size={16} className="text-[#FF8A00] shrink-0" />}
           <span className="text-white truncate">
             {selectedOption ? selectedOption.label : 'בחר...'}
           </span>
         </div>
-        <ChevronDown size={16} className={`text-[#FF8A00] transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`text-[#FF8A00] shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
