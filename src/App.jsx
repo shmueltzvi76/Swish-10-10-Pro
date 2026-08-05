@@ -307,12 +307,12 @@ export default function App() {
       settings
     };
     const json = JSON.stringify(payload, null, 2);
-    const filename = `swish-10-10-גיבוי-${new Date().toISOString().slice(0, 10)}.json`;
+    const filename = `swish-pro-10-10-גיבוי-${new Date().toISOString().slice(0, 10)}.json`;
     const file = new File([json], filename, { type: 'application/json' });
 
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: 'גיבוי Swish 10/10' });
+        await navigator.share({ files: [file], title: 'גיבוי Swish-Pro 10/10' });
         return;
       } catch {
         // המשתמש ביטל את השיתוף, או שהשיתוף נכשל בפועל - נופלים חזרה על הורדה רגילה
@@ -680,7 +680,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-2xl font-black text-white tracking-tight uppercase" style={{fontFamily: 'Impact, sans-serif'}}>
-                SWISH 10/10
+                SWISH-PRO 10/10
               </h1>
             </div>
           </div>
