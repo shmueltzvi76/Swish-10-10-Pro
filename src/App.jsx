@@ -1,448 +1,30 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, Bold, Italic, Underline, List, ListOrdered, Highlighter, Palette, ArrowRight, FileText, Download, Upload } from 'lucide-react';
+import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell } from 'lucide-react';
 
-const TREND_COLORS = { up: '#22C55E', down: '#EF4444', same: '#FF8A00' };
+import { getTrend } from './utils/trend';
+import {
+  TREND_COLORS,
+  STORAGE_DATA_KEY,
+  STORAGE_SETTINGS_KEY,
+  STORAGE_ONBOARDED_KEY,
+  STORAGE_SETTINGS_SEEN_KEY,
+  STORAGE_SPOTS_KEY,
+  STORAGE_SPOTS_HINT_SEEN_KEY,
+  STORAGE_DIFFICULTY_HINT_SEEN_KEY,
+  STORAGE_COURT_VIEW_KEY,
+  DIFFICULTY_MODIFIERS,
+  DEMO_SESSIONS,
+  INITIAL_SESSION
+} from './data/constants';
+import { DEFAULT_SPOTS, GROUP_ORDER, suggestSpotName, suggestSpotGroup, nextCustomSpotId } from './data/spots';
 
-// משווה בין ציון נוכחי לציון קודם ומחזיר 'up' (שיא נשבר) / 'down' / 'same' / null (אין נתון להשוואה)
-const getTrend = (current, previous) => {
-  if (current === undefined || current === null || previous === undefined || previous === null) return null;
-  if (current > previous) return 'up';
-  if (current < previous) return 'down';
-  return 'same';
-};
-
-// אייקון חץ קטן שמלווה צבע מגמה (עלייה/ירידה/ללא שינוי) כדי שהצבע לא יישאר חידה
-const TrendArrow = ({ trend, size = 12, className = '' }) => {
-  if (!trend) return null;
-  const color = TREND_COLORS[trend];
-  const Icon = trend === 'up' ? ArrowUp : trend === 'down' ? ArrowDown : Minus;
-  return <Icon size={size} style={{ color }} className={`inline-block shrink-0 ${className}`} strokeWidth={3} />;
-};
-
-// === מיקומי המגרש המעודכנים מתמטית ברמת הפיקסל! ===
-// מערכת הצירים: 100 רוחב על 125 גובה
-// קו עונשין = Y:55, לוח סל = Y:12
-const SPOTS = [
-  // שמאל (קרוב לרחוק) - יושבים על הקו השמאלי (X=25).
-  { id: 1, name: 'שמאל 1 מאחורי הקרש', group: 'צד שמאל', x: 25, y: 6 },
-  { id: 2, name: 'שמאל 2', group: 'צד שמאל', x: 25, y: 17 },
-  { id: 3, name: 'שמאל 3', group: 'צד שמאל', x: 25, y: 27 },
-  { id: 4, name: 'שמאל 4', group: 'צד שמאל', x: 25, y: 37 },
-  { id: 5, name: 'שמאל 5 רחוק', group: 'צד שמאל', x: 25, y: 48 },
-
-  // אופקי (בדיוק על קו העונשין Y=55. כולם בתוך גבולות הבקבוק X: 25-75)
-  { id: 6, name: 'עונשין שמאל חוץ', group: 'אופקי', x: 25, y: 55 },
-  { id: 7, name: 'עונשין שמאל פנים', group: 'אופקי', x: 34, y: 55 },
-  { id: 8, name: 'עונשין ימין פנים', group: 'אופקי', x: 66, y: 55 },
-  { id: 9, name: 'עונשין ימין חוץ', group: 'אופקי', x: 75, y: 55 },
-
-  // ימין (רחוק לקרוב) - יושבים על הקו הימני (X=75).
-  { id: 10, name: 'ימין 1 רחוק', group: 'צד ימין', x: 75, y: 48 },
-  { id: 11, name: 'ימין 2', group: 'צד ימין', x: 75, y: 37 },
-  { id: 12, name: 'ימין 3', group: 'צד ימין', x: 75, y: 27 },
-  { id: 13, name: 'ימין 4', group: 'צד ימין', x: 75, y: 17 },
-  { id: 14, name: 'ימין 5 מאחורי הקרש', group: 'צד ימין', x: 75, y: 6 },
-
-  // מול הסל: בדיוק באמצע (X=50)
-  { id: 15, name: 'קצה הבקבוק קשת עונשין', group: 'מול הסל', x: 50, y: 80 },
-  { id: 16, name: 'עונשין אמצע', group: 'מול הסל', x: 50, y: 55 },
-  { id: 17, name: 'קשת העונשין הקדמית', group: 'מול הסל', x: 50, y: 30 },
-  { id: 18, name: 'מתחת לסל', group: 'מול הסל', x: 50, y: 22 },
-
-  // שלשות: פינות בקו ישר לסל (אותו Y:16 של הסל עצמו), קו אמצע על קשת אמיתית שסוגרת עליהן ברדיוס 74 סביב הסל
-  { id: 19, name: 'שלשה פינה שמאל', group: 'שלשות', x: 6, y: 16 },
-  { id: 20, name: 'שלשה אמצע', group: 'שלשות', x: 50, y: 90 },
-  { id: 21, name: 'שלשה פינה ימין', group: 'שלשות', x: 94, y: 16 }
-];
-
-const GROUP_ORDER = ['צד שמאל', 'אופקי', 'צד ימין', 'מול הסל', 'שלשות'];
-
-const STORAGE_DATA_KEY = 'swish_pro_data_v19';
-const STORAGE_SETTINGS_KEY = 'swish_pro_settings_v19';
-const STORAGE_ONBOARDED_KEY = 'swish_pro_onboarded_v19';
-const STORAGE_SETTINGS_SEEN_KEY = 'swish_pro_settings_seen_v19';
-
-// נתוני הדגמה בלבד - מוצגים רק כשאין עדיין אימונים אמיתיים, כדי להראות את האפליקציה "בשיא תפארתה".
-// נמחקים אוטומטית ברגע שנשמר אימון אמיתי ראשון, או שהנתונים מנוקים ידנית בהגדרות.
-const DEMO_SESSIONS = [
-  {
-    id: 9005, date: '2026-08-03T18:00:00.000Z', targetShots: 10, isDemo: true,
-    data: { 1: 9, 2: 8, 3: 9, 4: 7, 5: 10, 6: 9, 7: 8, 8: 10, 9: 8, 10: 9, 11: 8, 12: 10, 13: 8, 14: 9, 15: 10, 16: 9, 17: 8, 18: 10, 19: 8, 20: 9, 21: 8 },
-    notes: {
-      general: '<b>ברוך הבא ל-SWISH 10/10!</b><br><br>שמחים מאוד שהצטרפת. הנתונים שאתה רואה כרגע הם הדגמה בלבד, כדי שתכיר את האפליקציה - ברגע שתשמור אימון אמיתי ראשון, או שתבחר למחוק את הנתונים בהגדרות, ההדגמה תיעלם אוטומטית ותתחיל לעקוב אחרי ההתקדמות האמיתית שלך.<br><br>בהצלחה באימונים, ותיהנה מהדרך!',
-      zones: {}
-    }
-  },
-  {
-    id: 9003, date: '2026-07-28T18:00:00.000Z', targetShots: 10, isDemo: true,
-    data: { 1: 5, 2: 4, 3: 5, 4: 3, 5: 6, 6: 5, 7: 4, 8: 6, 9: 4, 10: 5, 11: 4, 12: 6, 13: 4, 14: 5, 15: 6, 16: 5, 17: 4, 18: 6, 19: 4, 20: 5, 21: 4 }
-  },
-  {
-    id: 9002, date: '2026-07-21T18:00:00.000Z', targetShots: 10, isDemo: true,
-    data: { 1: 6, 2: 5, 3: 6, 4: 4, 5: 7, 6: 6, 7: 5, 8: 7, 9: 5, 10: 6, 11: 5, 12: 7, 13: 5, 14: 6, 15: 7, 16: 6, 17: 5, 18: 7, 19: 5, 20: 6, 21: 5 }
-  },
-  {
-    id: 9001, date: '2026-07-14T18:00:00.000Z', targetShots: 10, isDemo: true,
-    data: { 1: 4, 2: 3, 3: 5, 4: 2, 5: 6, 6: 5, 7: 4, 8: 6, 9: 3, 10: 5, 11: 4, 12: 6, 13: 3, 14: 5, 15: 6, 16: 5, 17: 4, 18: 6, 19: 3, 20: 5, 21: 4 }
-  }
-];
-
-const INITIAL_SESSION = {
-  id: 1715000000000,
-  date: '2026-07-29T19:50:03.000Z', // יום רביעי, 22:50:03 בשעון ישראל (UTC+3)
-  targetShots: 10,
-  data: {
-    1: 1, 2: 4, 3: 1, 4: 3, 5: 5,
-    6: 2, 7: 6, 8: 6, 9: 2,
-    10: 4, 11: 6, 12: 7, 13: 5, 14: 2,
-    15: 4, 16: 4, 17: 8, 18: 9,
-    19: 2, 20: 4, 21: 4
-  }
-};
-
-// === תפריט מותאם אישית ===
-const CustomDropdown = ({ value, options, onChange, icon: Icon }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const selectedOption = options.find(o => o.value === value);
-
-  return (
-    <div className="relative w-full">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between bg-[#161920] text-white font-bold text-sm border border-[#3A4155] rounded-xl py-3 px-4 focus:outline-none focus:border-[#FF8A00] shadow-sm transition-all"
-      >
-        <div className="flex items-center gap-2">
-          {Icon && <Icon size={16} className="text-[#FF8A00]" />}
-          <span className="text-white truncate">
-            {selectedOption ? selectedOption.label : 'בחר...'}
-          </span>
-        </div>
-        <ChevronDown size={16} className={`text-[#FF8A00] transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-          <div className="absolute top-full left-0 right-0 mt-2 bg-[#1C202A] border border-[#3A4155] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-50 overflow-hidden animate-in fade-in zoom-in-95 max-h-56 overflow-y-auto">
-            {options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                className={`w-full text-right px-4 py-3.5 text-sm font-bold transition-colors border-b border-[#2A2F3D]/50 last:border-0
-                  ${value === opt.value ? 'bg-[#FF8A00]/10 text-[#FF8A00]' : 'text-[#E0E2E7] hover:bg-[#2A2F3D]'}`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
-// === הזנה משולבת ===
-const HybridInput = ({ value, onChange, max }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const safeMax = Number.isFinite(max) && max > 0 ? max : 10;
-
-  return (
-    <div className="relative flex-shrink-0">
-      <div className="relative">
-        <input
-          type="number"
-          min="0"
-          max={safeMax}
-          value={value !== undefined ? value : ''}
-          onChange={(e) => {
-            const raw = e.target.value;
-            if (raw === '') { onChange(''); return; }
-            const v = parseInt(raw, 10);
-            if (Number.isFinite(v) && v >= 0 && v <= safeMax) onChange(v);
-          }}
-          className="appearance-none w-[85px] bg-[#0F1115] text-white font-black text-lg rounded-xl pr-3 pl-8 py-2.5 border border-[#3A4155] focus:border-[#FF8A00] focus:ring-1 focus:ring-[#FF8A00] outline-none transition-all text-center shadow-inner"
-          placeholder="-"
-          style={{ direction: 'ltr' }}
-        />
-        <button
-          type="button"
-          onClick={() => setIsOpen(o => !o)}
-          aria-label="בחר מספר מרשימה"
-          className="absolute left-2 top-1/2 transform -translate-y-1/2 p-1"
-        >
-          <ChevronDown className={`w-4 h-4 text-[#FF8A00] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-      </div>
-
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-          <div className="absolute top-full right-0 mt-2 w-[120px] bg-[#1C202A] border border-[#3A4155] rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 max-h-48 overflow-y-auto flex flex-col animate-in fade-in zoom-in-95">
-            {Array.from({length: safeMax + 1}, (_, i) => (
-              <button
-                key={i}
-                onClick={(e) => { e.preventDefault(); onChange(i); setIsOpen(false); }}
-                className="py-3 text-center font-black text-white hover:bg-[#FF8A00] hover:text-black border-b border-[#2A2F3D]/50 last:border-0 transition-colors"
-              >
-                {i}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
-// === עורך טקסט מעוצב ליומן (לא-מבוקר בכוונה - כותב ל-DOM ישירות כדי לשמור על מיקום הסמן בזמן הקלדה) ===
-const TEXT_COLOR_SWATCHES = [
-  { label: 'ברירת מחדל', value: '#E0E2E7' },
-  { label: 'כתום', value: '#FF8A00' },
-  { label: 'ירוק', value: '#22C55E' },
-  { label: 'אדום', value: '#EF4444' },
-];
-
-const HIGHLIGHT_SWATCHES = [
-  { label: 'ללא הדגשה', value: 'transparent' },
-  { label: 'כתום', value: 'rgba(255,138,0,0.45)' },
-  { label: 'ירוק', value: 'rgba(34,197,94,0.45)' },
-  { label: 'אדום', value: 'rgba(239,68,68,0.45)' },
-];
-
-const RichTextEditor = ({ initialValue, onChange, placeholder }) => {
-  const ref = useRef(null);
-  const [openPopover, setOpenPopover] = useState(null);
-  const [activeFormats, setActiveFormats] = useState({ bold: false, italic: false, underline: false });
-
-  useEffect(() => {
-    if (ref.current) ref.current.innerHTML = initialValue || '';
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const syncActiveFormats = () => {
-    try {
-      setActiveFormats({
-        bold: document.queryCommandState('bold'),
-        italic: document.queryCommandState('italic'),
-        underline: document.queryCommandState('underline'),
-      });
-    } catch {
-      // ignore - queryCommandState can throw in rare cases when there's no selection yet
-    }
-  };
-
-  const exec = (cmd, arg) => {
-    ref.current?.focus();
-    document.execCommand(cmd, false, arg);
-    onChange(ref.current.innerHTML);
-    setOpenPopover(null);
-    syncActiveFormats();
-  };
-
-  const btnClass = (active) => `p-2 rounded-lg transition-colors ${active ? 'bg-[#FF8A00]/20 text-[#FF8A00]' : 'text-[#E0E2E7] hover:bg-[#2A2F3D]'}`;
-
-  return (
-    <div className="border border-[#3A4155] rounded-xl overflow-hidden bg-[#0F1115]">
-      <div className="relative flex items-center gap-0.5 p-2 border-b border-[#3A4155] bg-[#161920] flex-wrap">
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')} className={btnClass(activeFormats.bold)} aria-label="הדגשה">
-          <Bold size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')} className={btnClass(activeFormats.italic)} aria-label="נטוי">
-          <Italic size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')} className={btnClass(activeFormats.underline)} aria-label="קו תחתון">
-          <Underline size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')} className={btnClass(false)} aria-label="רשימת נקודות">
-          <List size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertOrderedList')} className={btnClass(false)} aria-label="רשימה ממוספרת">
-          <ListOrdered size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenPopover(p => p === 'color' ? null : 'color')} className={btnClass(openPopover === 'color')} aria-label="צבע טקסט">
-          <Palette size={14} />
-        </button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenPopover(p => p === 'highlight' ? null : 'highlight')} className={btnClass(openPopover === 'highlight')} aria-label="הדגשת רקע">
-          <Highlighter size={14} />
-        </button>
-        <div className="w-px h-5 bg-[#3A4155] mx-1 shrink-0"></div>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            if (!ref.current || !ref.current.textContent.trim()) return;
-            if (!window.confirm('למחוק את כל הטקסט בהערה הזו?')) return;
-            ref.current.focus();
-            document.execCommand('selectAll');
-            document.execCommand('delete');
-            onChange(ref.current.innerHTML);
-            syncActiveFormats();
-          }}
-          className="p-2 rounded-lg hover:bg-[#C4534A]/15 text-[#C4534A] transition-colors"
-          aria-label="מחיקת כל הטקסט"
-          title="מחיקת כל הטקסט"
-        >
-          <Trash2 size={14} />
-        </button>
-
-        {openPopover && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpenPopover(null)}></div>
-            <div className="absolute top-full right-0 mt-1 z-50 bg-[#1C202A] border border-[#3A4155] rounded-xl shadow-xl p-2 flex gap-2">
-              {(openPopover === 'color' ? TEXT_COLOR_SWATCHES : HIGHLIGHT_SWATCHES).map(sw => (
-                <button
-                  key={sw.value}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => exec(openPopover === 'color' ? 'foreColor' : 'hiliteColor', sw.value)}
-                  aria-label={sw.label}
-                  title={sw.label}
-                  className="flex flex-col items-center gap-1 shrink-0"
-                >
-                  <span
-                    className="w-8 h-8 rounded-full border-2 flex items-center justify-center bg-[#0F1115]"
-                    style={{ borderColor: sw.value === 'transparent' ? '#3A4155' : sw.value }}
-                  >
-                    {sw.value === 'transparent' ? (
-                      <X size={14} className="text-[#848B98]" />
-                    ) : openPopover === 'color' ? (
-                      <span className="text-sm font-black" style={{ color: sw.value }}>א</span>
-                    ) : (
-                      <span className="w-5 h-5 rounded-full" style={{ backgroundColor: sw.value }}></span>
-                    )}
-                  </span>
-                  <span className="text-[8px] text-[#848B98] whitespace-nowrap">{sw.label}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-      <div
-        ref={ref}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={() => onChange(ref.current.innerHTML)}
-        onKeyUp={syncActiveFormats}
-        onMouseUp={syncActiveFormats}
-        onFocus={syncActiveFormats}
-        data-placeholder={placeholder}
-        className="journal-content p-3 min-h-[90px] max-h-[50vh] overflow-y-auto text-sm text-[#E0E2E7] leading-relaxed outline-none bg-[#171B24]"
-        style={{ direction: 'rtl' }}
-      />
-    </div>
-  );
-};
-
-// === גרף אינטראקטיבי מושלם ===
-const SmartLineChart = ({ data }) => {
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useEffect(() => {
-    if (data && data.length > 0) setActiveIndex(data.length - 1);
-  }, [data]);
-
-  if (!data || data.length === 0) return <div className="text-[#848B98] text-center py-6 text-sm">אין נתונים להצגת גרף</div>;
-
-  const chartData = [...data].reverse();
-  const maxPoints = Math.max(chartData.length, 2);
-  const safeActiveIndex = Math.min(activeIndex, chartData.length - 1);
-  const activeData = chartData[safeActiveIndex] || chartData[chartData.length - 1];
-
-  const getX = (index) => 8 + (index / (maxPoints - 1)) * 84;
-  const getSvgY = (percentage) => 100 - percentage;
-
-  const svgPoints = chartData.map((d, i) => `${getX(i)},${getSvgY(d.percentage)}`).join(' ');
-
-  // צבע אחיד לכל הגרף, לפי המגמה בין שתי הנקודות האחרונות (הכי עדכני) - הצורה של הגרף עצמו מראה עלייה/ירידה לאורך הזמן
-  const latestPoint = chartData[chartData.length - 1];
-  const priorPoint = chartData[chartData.length - 2];
-  const graphTrend = priorPoint ? getTrend(latestPoint.percentage, priorPoint.percentage) : null;
-  const graphColor = graphTrend ? TREND_COLORS[graphTrend] : '#FF8A00';
-
-  return (
-    <div className="w-full relative pt-2 pb-6">
-
-      <div className="bg-[#0F1115] border border-[#3A4155] rounded-xl p-3 mb-6 flex justify-between items-center shadow-inner transition-all">
-        <div>
-          <p className="text-[#848B98] text-[10px] uppercase tracking-wider mb-0.5">{activeData.fullDate}</p>
-          <p className="text-white font-bold text-xs">תוצאת אימון נבחר</p>
-        </div>
-        <div className="text-2xl font-black drop-shadow-md" style={{ color: graphColor }}>
-          {activeData.percentage.toFixed(0)}<span className="text-sm">%</span>
-        </div>
-      </div>
-
-      <div className="relative h-32 border-b border-[#2A2F3D]">
-        {[0, 50, 100].map(val => (
-          <div key={val} className="absolute w-full border-t border-[#2A2F3D]/50" style={{ bottom: `${val}%` }}>
-            <span className="absolute left-0 -top-2.5 text-[9px] text-[#596070] font-medium">{val}%</span>
-          </div>
-        ))}
-
-        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible" preserveAspectRatio="none">
-          {chartData.length > 1 && (
-            <>
-              <polygon points={`0,100 ${svgPoints} ${getX(chartData.length-1)},100`} fill="url(#trend-grad)" opacity="0.15"/>
-              <polyline points={svgPoints} fill="none" stroke={graphColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </>
-          )}
-          <defs>
-            <linearGradient id="trend-grad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={graphColor} stopOpacity="1" />
-              <stop offset="100%" stopColor={graphColor} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-        </svg>
-
-        {chartData.map((d, i) => {
-          const isActive = i === safeActiveIndex;
-
-          return (
-            <div
-              key={i}
-              className="absolute top-0 bottom-0 cursor-pointer flex flex-col items-center justify-end z-20 group"
-              style={{ left: `calc(${getX(i)}% - 15px)`, width: '30px' }}
-              onClick={() => setActiveIndex(i)}
-            >
-              {isActive && (
-                <div className="absolute top-0 bottom-0 w-[1px] bg-transparent border-r border-dashed" style={{ left: '50%', borderColor: `${graphColor}80` }}></div>
-              )}
-              <div
-                className={`absolute rounded-full transform -translate-x-1/2 translate-y-1/2 transition-all duration-300
-                  ${isActive ? 'w-4 h-4 border-[3px] border-[#1C202A] z-30' : 'w-2 h-2 bg-[#0F1115] border-[2px]'}`}
-                style={{
-                  left: '50%', bottom: `${d.percentage}%`,
-                  backgroundColor: isActive ? graphColor : '#0F1115',
-                  borderColor: graphColor,
-                  boxShadow: isActive ? `0 0 12px ${graphColor}CC` : 'none'
-                }}
-              ></div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="relative h-6 mt-3 w-full">
-        {chartData.map((d, i) => {
-          const isActive = i === safeActiveIndex;
-          return (
-            <div
-              key={i}
-              onClick={() => setActiveIndex(i)}
-              className={`absolute transform -translate-x-1/2 text-[9px] text-center font-bold cursor-pointer transition-colors px-1.5 py-1 rounded-md whitespace-nowrap
-                ${isActive ? '' : 'text-[#848B98] hover:text-[#E0E2E7]'}`}
-              style={{ left: `${getX(i)}%`, top: 0, ...(isActive ? { color: graphColor, backgroundColor: `${graphColor}1A` } : {}) }}
-            >
-              {d.shortDate}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
+import CustomDropdown from './components/CustomDropdown';
+import HybridInput from './components/HybridInput';
+import RichTextEditor from './components/RichTextEditor';
+import SmartLineChart from './components/SmartLineChart';
+import TrendArrow from './components/TrendArrow';
+import CourtView from './components/CourtView';
+import DifficultyChips from './components/DifficultyChips';
 
 // טוען את המצב ההתחלתי (אימונים, הגדרות, האם להציג דמה) פעם אחת בלבד, באופן סינכרוני,
 // לפני הרינדור הראשון - כדי שהמסך הראשון שהמשתמש רואה כבר יהיה הנכון, בלי הבזק ריק שקופץ
@@ -513,6 +95,19 @@ const loadInitialState = () => {
   return cachedInitialLoad;
 };
 
+const loadInitialSpots = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_SPOTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // ignore corrupted spots, fall back to defaults
+  }
+  return DEFAULT_SPOTS;
+};
+
 export default function App() {
   const mainRef = useRef(null);
   const importInputRef = useRef(null);
@@ -525,12 +120,20 @@ export default function App() {
   const [isDemoData, setIsDemoData] = useState(() => loadInitialState().isDemoData);
   const [showSettingsHint, setShowSettingsHint] = useState(() => localStorage.getItem(STORAGE_SETTINGS_SEEN_KEY) !== 'true');
 
+  const [spots, setSpots] = useState(loadInitialSpots);
+  const [courtMode, setCourtMode] = useState(() => localStorage.getItem(STORAGE_COURT_VIEW_KEY) === 'full' ? 'full' : 'half');
+  const [spotEditMode, setSpotEditMode] = useState(false);
+  const [showSpotsEditHint, setShowSpotsEditHint] = useState(() => localStorage.getItem(STORAGE_SPOTS_HINT_SEEN_KEY) !== 'true');
+
+  const [currentDifficulty, setCurrentDifficulty] = useState([]);
+  const [showDifficultyHint, setShowDifficultyHint] = useState(() => localStorage.getItem(STORAGE_DIFFICULTY_HINT_SEEN_KEY) !== 'true');
+
   const [currentInput, setCurrentInput] = useState({});
   const [editingId, setEditingId] = useState(null);
 
   const [filterMode, setFilterMode] = useState('overall');
   const [filterZone, setFilterZone] = useState(GROUP_ORDER[0]);
-  const [filterSpot, setFilterSpot] = useState(SPOTS[0].id);
+  const [filterSpot, setFilterSpot] = useState(spots[0]?.id);
 
   const [journalSessionId, setJournalSessionId] = useState(null);
   const [expandedZones, setExpandedZones] = useState({});
@@ -551,6 +154,55 @@ export default function App() {
     localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(settings));
   }, [sessions, settings, isDemoData]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_COURT_VIEW_KEY, courtMode);
+  }, [courtMode]);
+
+  const toggleSpotEditMode = () => {
+    setSpotEditMode(prev => !prev);
+    if (showSpotsEditHint) {
+      setShowSpotsEditHint(false);
+      localStorage.setItem(STORAGE_SPOTS_HINT_SEEN_KEY, 'true');
+    }
+  };
+
+  const handleAddSpot = (x, y) => {
+    setSpots(prev => {
+      const updated = [...prev, {
+        id: nextCustomSpotId(prev),
+        name: suggestSpotName(x, y),
+        group: suggestSpotGroup(x, y),
+        x: Math.round(x * 10) / 10,
+        y: Math.round(y * 10) / 10,
+        custom: true
+      }];
+      localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleRemoveSpot = (spotId) => {
+    setSpots(prev => {
+      const updated = prev.filter(s => s.id !== spotId);
+      localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleResetSpots = () => {
+    if (!window.confirm('לאפס את כל המיקומים המותאמים אישית ולחזור לברירת המחדל?')) return;
+    setSpots(DEFAULT_SPOTS);
+    localStorage.removeItem(STORAGE_SPOTS_KEY);
+  };
+
+  const toggleDifficulty = (id) => {
+    setCurrentDifficulty(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]);
+    if (showDifficultyHint) {
+      setShowDifficultyHint(false);
+      localStorage.setItem(STORAGE_DIFFICULTY_HINT_SEEN_KEY, 'true');
+    }
+  };
+
   const saveSession = () => {
     const entries = Object.entries(currentInput).filter(([, v]) => v !== '' && v !== undefined && v !== null);
     if (entries.length === 0) return;
@@ -558,7 +210,7 @@ export default function App() {
 
     if (editingId) {
       const updatedSessions = sessions.map(s =>
-        s.id === editingId ? { ...s, data: cleanedInput } : s
+        s.id === editingId ? { ...s, data: cleanedInput, difficulty: currentDifficulty } : s
       );
       setSessions(updatedSessions);
     } else {
@@ -566,7 +218,8 @@ export default function App() {
         id: Date.now(),
         date: new Date().toISOString(),
         targetShots: settings.targetShots,
-        data: cleanedInput
+        data: cleanedInput,
+        difficulty: currentDifficulty
       };
 
       if (isDemoData) {
@@ -599,6 +252,7 @@ export default function App() {
   const handleEdit = (session) => {
     setEditingId(session.id);
     setCurrentInput(session.data);
+    setCurrentDifficulty(session.difficulty || []);
     setActiveTab('input');
   };
 
@@ -711,7 +365,8 @@ export default function App() {
   };
 
   const handleSpotClick = (spotId) => {
-    const spot = SPOTS.find(s => s.id === spotId);
+    const spot = spots.find(s => s.id === spotId);
+    if (!spot) return;
     const session1 = sessions[0];
     const session2 = sessions.length > 1 ? sessions[1] : null;
     const session3 = sessions.length > 2 ? sessions[2] : null;
@@ -769,7 +424,7 @@ export default function App() {
     const rows = [];
     sessions.forEach(session => {
       let made = 0, attempts = 0;
-      SPOTS.filter(s => s.group === group).forEach(spot => {
+      spots.filter(s => s.group === group).forEach(spot => {
         if (session.data[spot.id] !== undefined) {
           made += session.data[spot.id];
           attempts += session.targetShots;
@@ -807,8 +462,8 @@ export default function App() {
       const isLast = idx === 0;
       const isPrev = idx === 1;
       Object.entries(session.data).forEach(([idStr, made]) => {
-        const spot = SPOTS.find(s => s.id === parseInt(idStr, 10));
-        if (spot) {
+        const spot = spots.find(s => s.id === parseInt(idStr, 10));
+        if (spot && zoneData[spot.group]) {
           totalMade += made;
           totalShots += session.targetShots;
           zoneData[spot.group].allTimeMade += made;
@@ -837,7 +492,7 @@ export default function App() {
       lastPerc: lastShots > 0 ? Math.round((lastMade / lastShots) * 100) : 0,
       zoneData
     };
-  }, [sessions]);
+  }, [sessions, spots]);
 
   const graphData = useMemo(() => {
     const raw = sessions.map(session => {
@@ -848,7 +503,7 @@ export default function App() {
         total = Object.keys(session.data).length * session.targetShots;
       }
       else if (filterMode === 'zone') {
-        SPOTS.filter(s => s.group === filterZone).forEach(spot => {
+        spots.filter(s => s.group === filterZone).forEach(spot => {
           if(session.data[spot.id] !== undefined) {
             made += session.data[spot.id];
             total += session.targetShots;
@@ -871,7 +526,7 @@ export default function App() {
       };
     });
     return raw.filter(d => d.hasData);
-  }, [sessions, filterMode, filterZone, filterSpot]);
+  }, [sessions, filterMode, filterZone, filterSpot, spots]);
 
   const insights = useMemo(() => {
     if (!latestSession || !stats) return [];
@@ -936,8 +591,9 @@ export default function App() {
   ];
 
   const zoneOptions = GROUP_ORDER.map(g => ({ value: g, label: g }));
-  const spotOptions = SPOTS.map(s => ({ value: s.id, label: s.name }));
+  const spotOptions = spots.map(s => ({ value: s.id, label: s.name }));
 
+  const difficultyLabel = (id) => DIFFICULTY_MODIFIERS.find(m => m.id === id)?.label || id;
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden bg-[#0F1115] text-[#E0E2E7] font-sans selection:bg-[#FF8A00]/30" dir="rtl">
@@ -1187,65 +843,20 @@ export default function App() {
               </div>
             </div>
 
-            {/* איור מגרש מותאם מתמטית לחלוטין (viewBox: 0 0 100 125), מוקטן לפי הגובה הפנוי כדי שלא יגלוש */}
-            <div className="flex-1 min-h-0 flex items-center justify-center">
-            <div className="relative h-full max-w-full aspect-[4/5] bg-[#A9713F] rounded-3xl border-[6px] border-white shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-hidden">
-              <div className="absolute inset-0 bg-black/15 pointer-events-none"></div>
-              <div className="absolute inset-0 opacity-15 flex flex-col justify-around pointer-events-none">
-                {[...Array(25)].map((_, i) => (
-                  <div key={i} className="h-[2px] bg-black/40 w-full shadow-[0_1px_1px_rgba(255,255,255,0.1)]" />
-                ))}
-              </div>
-
-              <svg viewBox="0 0 100 125" className="absolute inset-0 w-full h-full opacity-90 pointer-events-none">
-                {/* הבקבוק */}
-                <rect x="25" y="0" width="50" height="55" fill="#A46D42" stroke="white" strokeWidth="1.2" />
-                {/* קשת עונשין פנימית וחיצונית */}
-                <path d="M 25 55 A 25 25 0 0 0 75 55" fill="none" stroke="white" strokeWidth="1.2" />
-                <path d="M 25 55 A 25 25 0 0 1 75 55" fill="none" stroke="white" strokeDasharray="2 2" strokeWidth="1.2" />
-                {/* סל וקרש */}
-                <line x1="38" y1="12" x2="62" y2="12" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-                <circle cx="50" cy="16" r="3.5" fill="#FF4D4D" stroke="white" strokeWidth="1" />
-
-                {/* קשת 3 - אליפסה אמיתית (רדיוס אופקי 44, אנכי 74) סביב מרכז הסל (50,16), עוברת בול דרך הפינות בגובה הסל ודרך הנקודה העמוקה מול הסל */}
-                <path d="M 6 0 L 6 16 A 44 74 0 0 0 94 16 L 94 0" fill="none" stroke="white" strokeWidth="1.2" />
-              </svg>
-
-              {SPOTS.map((spot) => {
-                const score = latestSession?.data[spot.id];
-                if (score === undefined) return null;
-                const trend = getTrend(score, comparisonSession?.data[spot.id]);
-                const trendColor = trend ? TREND_COLORS[trend] : '#FFFFFF';
-                return (
-                  <button
-                    key={spot.id}
-                    onClick={() => handleSpotClick(spot.id)}
-                    className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform hover:scale-110 active:scale-95 z-10 w-5 h-5"
-                    // המרה ל-125 בגובה
-                    style={{ left: `${spot.x}%`, top: `${(spot.y / 125) * 100}%`, pointerEvents: 'auto' }}
-                  >
-                    <div className="relative w-full h-full flex items-center justify-center">
-                      {trend && (
-                        <div
-                          className="absolute rounded-full"
-                          style={{ inset: '1px', backgroundColor: trendColor, boxShadow: `0 0 1px 0px ${trendColor}` }}
-                        ></div>
-                      )}
-                      <span
-                        className="relative z-10 font-black text-[10px] text-white"
-                        style={{
-                          textShadow: '0px 1px 2px rgba(0,0,0,0.95), 0px 0px 2px rgba(0,0,0,0.95)',
-                          fontFamily: 'Impact, sans-serif'
-                        }}
-                      >
-                        {score}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            </div>
+            <CourtView
+              spots={spots}
+              latestSession={latestSession}
+              comparisonSession={comparisonSession}
+              onSpotClick={handleSpotClick}
+              courtMode={courtMode}
+              onChangeCourtMode={setCourtMode}
+              editMode={spotEditMode}
+              onToggleEditMode={toggleSpotEditMode}
+              onAddSpot={handleAddSpot}
+              onRemoveSpot={handleRemoveSpot}
+              onResetSpots={handleResetSpots}
+              showEditHint={showSpotsEditHint}
+            />
 
             <div className="shrink-0 text-center mt-3 bg-[#1C202A] px-3 py-2 rounded-xl border border-[#2A2F3D]">
               <p className="text-[#848B98] text-[10px] flex items-center justify-center gap-1">
@@ -1279,8 +890,22 @@ export default function App() {
               )}
             </div>
 
+            <div className="relative mb-6 bg-[#1C202A] rounded-2xl border border-[#2A2F3D] p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Dumbbell size={15} className="text-[#FF8A00]" />
+                <h3 className="text-white font-bold text-sm">רמת קושי לאימון הזה</h3>
+                {showDifficultyHint && (
+                  <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-pulse"></span>
+                )}
+              </div>
+              <DifficultyChips selected={currentDifficulty} onToggle={toggleDifficulty} />
+            </div>
+
             <div className="space-y-6">
-              {GROUP_ORDER.map(group => (
+              {GROUP_ORDER.map(group => {
+                const groupSpots = spots.filter(s => s.group === group);
+                if (groupSpots.length === 0) return null;
+                return (
                 <div key={group} className="bg-[#1C202A] rounded-2xl border border-[#2A2F3D] shadow-lg">
                   <div className="bg-[#212631] px-4 py-3 border-b border-[#2A2F3D] rounded-t-2xl flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-[#FF8A00]/20 flex items-center justify-center">
@@ -1290,7 +915,7 @@ export default function App() {
                   </div>
 
                   <div className="p-2 divide-y divide-[#2A2F3D]/50">
-                    {SPOTS.filter(s => s.group === group).map(spot => {
+                    {groupSpots.map(spot => {
                       const val = currentInput[spot.id];
                       const prevScore = previousSession?.data[spot.id];
                       const liveTrend = (val !== undefined && val !== '' && prevScore !== undefined) ? getTrend(val, prevScore) : null;
@@ -1327,7 +952,8 @@ export default function App() {
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <button
@@ -1367,6 +993,15 @@ export default function App() {
                     <p className="text-[#848B98] text-[10px]">קליעות מהאימון האחרון</p>
                   </div>
                 </div>
+                {latestSession.difficulty && latestSession.difficulty.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3 relative z-10">
+                    {latestSession.difficulty.map(id => (
+                      <span key={id} className="text-[9px] font-bold bg-[#0F1115] text-[#A0A6B1] border border-[#2A2F3D] rounded-full px-2 py-0.5">
+                        {difficultyLabel(id)}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1558,6 +1193,18 @@ export default function App() {
                       <div>
                         <p className="text-white font-bold text-sm">אימון {sessions.length - idx}</p>
                         <p className="text-[10px] text-[#848B98] mt-0.5">{new Date(session.date).toLocaleString('he-IL')}</p>
+                        {session.difficulty && session.difficulty.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {session.difficulty.slice(0, 3).map(id => (
+                              <span key={id} className="text-[8px] font-bold bg-[#0F1115] text-[#848B98] border border-[#2A2F3D] rounded-full px-1.5 py-0.5">
+                                {difficultyLabel(id)}
+                              </span>
+                            ))}
+                            {session.difficulty.length > 3 && (
+                              <span className="text-[8px] font-bold text-[#596070]">+{session.difficulty.length - 3}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-4">
