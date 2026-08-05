@@ -8,6 +8,8 @@ export const STORAGE_SPOTS_KEY = 'swish_pro_spots_v1';
 export const STORAGE_SPOTS_HINT_SEEN_KEY = 'swish_pro_spots_hint_seen_v1';
 export const STORAGE_DIFFICULTY_HINT_SEEN_KEY = 'swish_pro_difficulty_hint_seen_v1';
 export const STORAGE_COURT_VIEW_KEY = 'swish_pro_court_view_v1';
+export const STORAGE_ACTIVE_TEMPLATE_KEY = 'swish_pro_active_template_v1';
+export const STORAGE_COURT_DIFFICULTY_FILTER_KEY = 'swish_pro_court_difficulty_filter_v1';
 
 // רמות קושי לזריקה - ניתן לבחור כמה שרוצים, נשמרות כתגית על האימון (זמינות גם במגרש וגם בדף ההזנה)
 export const DIFFICULTY_MODIFIERS = [

@@ -12,11 +12,14 @@ import {
   STORAGE_SPOTS_HINT_SEEN_KEY,
   STORAGE_DIFFICULTY_HINT_SEEN_KEY,
   STORAGE_COURT_VIEW_KEY,
+  STORAGE_ACTIVE_TEMPLATE_KEY,
+  STORAGE_COURT_DIFFICULTY_FILTER_KEY,
   DIFFICULTY_MODIFIERS,
   DEMO_SESSIONS,
   INITIAL_SESSION
 } from './data/constants';
 import { DEFAULT_SPOTS, GROUP_ORDER, suggestSpotName, suggestSpotGroup, nextCustomSpotId } from './data/spots';
+import { SPOT_TEMPLATES, getTemplateById } from './data/templates';
 
 import CustomDropdown from './components/CustomDropdown';
 import HybridInput from './components/HybridInput';
@@ -124,6 +127,8 @@ export default function App() {
   const [courtMode, setCourtMode] = useState(() => localStorage.getItem(STORAGE_COURT_VIEW_KEY) === 'full' ? 'full' : 'half');
   const [spotEditMode, setSpotEditMode] = useState(false);
   const [showSpotsEditHint, setShowSpotsEditHint] = useState(() => localStorage.getItem(STORAGE_SPOTS_HINT_SEEN_KEY) !== 'true');
+  const [activeTemplateId, setActiveTemplateId] = useState(() => localStorage.getItem(STORAGE_ACTIVE_TEMPLATE_KEY) || 'default');
+  const [courtDifficultyFilter, setCourtDifficultyFilter] = useState(() => localStorage.getItem(STORAGE_COURT_DIFFICULTY_FILTER_KEY) || 'regular');
 
   const [currentDifficulty, setCurrentDifficulty] = useState([]);
   const [showDifficultyHint, setShowDifficultyHint] = useState(() => localStorage.getItem(STORAGE_DIFFICULTY_HINT_SEEN_KEY) !== 'true');
@@ -158,12 +163,22 @@ export default function App() {
     localStorage.setItem(STORAGE_COURT_VIEW_KEY, courtMode);
   }, [courtMode]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_COURT_DIFFICULTY_FILTER_KEY, courtDifficultyFilter);
+  }, [courtDifficultyFilter]);
+
   const toggleSpotEditMode = () => {
     setSpotEditMode(prev => !prev);
     if (showSpotsEditHint) {
       setShowSpotsEditHint(false);
       localStorage.setItem(STORAGE_SPOTS_HINT_SEEN_KEY, 'true');
     }
+  };
+
+  const setActiveTemplate = (id) => {
+    setActiveTemplateId(id);
+    if (id) localStorage.setItem(STORAGE_ACTIVE_TEMPLATE_KEY, id);
+    else localStorage.removeItem(STORAGE_ACTIVE_TEMPLATE_KEY);
   };
 
   const handleAddSpot = (x, y) => {
@@ -179,6 +194,7 @@ export default function App() {
       localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify(updated));
       return updated;
     });
+    setActiveTemplate(null);
   };
 
   const handleRemoveSpot = (spotId) => {
@@ -187,12 +203,31 @@ export default function App() {
       localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify(updated));
       return updated;
     });
+    setActiveTemplate(null);
   };
 
   const handleResetSpots = () => {
     if (!window.confirm('לאפס את כל המיקומים המותאמים אישית ולחזור לברירת המחדל?')) return;
     setSpots(DEFAULT_SPOTS);
     localStorage.removeItem(STORAGE_SPOTS_KEY);
+    setActiveTemplate('default');
+  };
+
+  const handleClearAllSpots = () => {
+    if (!window.confirm('למחוק את כל המיקומים מהמגרש (כולל ברירת המחדל) ולהתחיל מלוח ריק?')) return;
+    setSpots([]);
+    localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify([]));
+    setActiveTemplate(null);
+  };
+
+  const handleApplyTemplate = (template) => {
+    if (activeTemplateId === template.id) return;
+    if (!window.confirm(`להחליף את המיקומים הנוכחיים בתבנית "${template.name}"?`)) return;
+    const nextSpots = template.spots || DEFAULT_SPOTS;
+    setSpots(nextSpots);
+    if (template.spots) localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify(nextSpots));
+    else localStorage.removeItem(STORAGE_SPOTS_KEY);
+    setActiveTemplate(template.id);
   };
 
   const toggleDifficulty = (id) => {
@@ -367,9 +402,9 @@ export default function App() {
   const handleSpotClick = (spotId) => {
     const spot = spots.find(s => s.id === spotId);
     if (!spot) return;
-    const session1 = sessions[0];
-    const session2 = sessions.length > 1 ? sessions[1] : null;
-    const session3 = sessions.length > 2 ? sessions[2] : null;
+    const session1 = courtFilteredSessions[0];
+    const session2 = courtFilteredSessions.length > 1 ? courtFilteredSessions[1] : null;
+    const session3 = courtFilteredSessions.length > 2 ? courtFilteredSessions[2] : null;
 
     const getStats = (session) => {
       if (!session || session.data[spotId] === undefined) return null;
@@ -396,6 +431,22 @@ export default function App() {
   const latestSession = sessions[0] || null;
   // "אימון ההשוואה" - האימון שלפני האחרון, משמש לבדיקת "שבירת שיא" (המגרש, כרטיס הסטטיסטיקה, חלוקה לאזורים)
   const comparisonSession = sessions.length > 1 ? sessions[1] : null;
+
+  // סינון לפי סוג קליעה עבור תצוגת המגרש בלבד: "רגיל" = אימונים ללא תגית קושי כלל (ברירת המחדל),
+  // "הכל" = כל האימונים ללא סינון, אחרת = רק אימונים שכוללים את תגית הקושי הנבחרת
+  const courtFilteredSessions = useMemo(() => {
+    if (courtDifficultyFilter === 'all') return sessions;
+    if (courtDifficultyFilter === 'regular') return sessions.filter(s => !s.difficulty || s.difficulty.length === 0);
+    return sessions.filter(s => s.difficulty && s.difficulty.includes(courtDifficultyFilter));
+  }, [sessions, courtDifficultyFilter]);
+  const courtLatestSession = courtFilteredSessions[0] || null;
+  const courtComparisonSession = courtFilteredSessions.length > 1 ? courtFilteredSessions[1] : null;
+
+  const courtDifficultyOptions = [
+    { value: 'regular', label: 'קליעה רגילה (ברירת מחדל)' },
+    ...DIFFICULTY_MODIFIERS.map(m => ({ value: m.id, label: m.label })),
+    { value: 'all', label: 'כל האימונים (ללא סינון)' }
+  ];
   // כשיוצרים אימון חדש, האימון "הקודם" הוא פשוט האימון האחרון שכבר נשמר (sessions[0]) -
   // הוא עדיין לא כלול במערך sessions באותה נקודה. בעריכת אימון קיים, "הקודם" הוא האימון
   // האחרון שאינו זה שנערך כרגע.
@@ -839,37 +890,14 @@ export default function App() {
 
         {/* מגרש ראשי */}
         {activeTab === 'court' && !showSettingsModal && (
-          <div className="h-full flex flex-col p-4 animate-in fade-in">
-            {isDemoData && (
-              <div className="shrink-0 mb-3 px-3 py-2 rounded-xl border border-dashed border-[#FF8A00]/50 bg-[#FF8A00]/10 flex items-center gap-2">
-                <Sparkles size={14} className="text-[#FF8A00] shrink-0" />
-                <p className="text-[#FF8A00] text-[11px] font-bold leading-tight">
-                  מצב הדגמה - נתונים לדוגמה בלבד. ברגע שתזין אימון אמיתי ראשון, הם יוחלפו במעקב האמיתי שלך.
-                </p>
-              </div>
-            )}
-            <div className="shrink-0 bg-[#1C202A] p-3 rounded-2xl mb-3 border border-[#2A2F3D] flex justify-between items-center shadow-lg">
-              <div>
-                <p className="text-[#848B98] text-[10px] font-bold uppercase tracking-wider mb-0.5">
-                  האימון האחרון
-                </p>
-                <p className="text-white font-medium text-sm">
-                  {latestSession ? new Date(latestSession.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' }) : 'אין נתונים'}
-                </p>
-              </div>
-              <div
-                className="text-left px-3 py-1.5 rounded-xl border"
-                style={{ background: `linear-gradient(to bottom right, ${overallTrendColor}33, ${overallTrendColor}0D)`, borderColor: `${overallTrendColor}33` }}
-              >
-                <p className="text-xl font-black flex items-center gap-1" style={{ color: overallTrendColor }}>{latestSessionPerc}%<TrendArrow trend={overallTrend} size={14} /></p>
-              </div>
-            </div>
-
+          <div className="h-full flex flex-col p-3 animate-in fade-in">
             <CourtView
               spots={spots}
-              latestSession={latestSession}
-              comparisonSession={comparisonSession}
+              latestSession={courtLatestSession}
+              comparisonSession={courtComparisonSession}
               onSpotClick={handleSpotClick}
+              isDemoData={isDemoData}
+              targetShots={courtLatestSession?.targetShots || settings.targetShots}
               courtMode={courtMode}
               onChangeCourtMode={setCourtMode}
               editMode={spotEditMode}
@@ -877,21 +905,15 @@ export default function App() {
               onAddSpot={handleAddSpot}
               onRemoveSpot={handleRemoveSpot}
               onResetSpots={handleResetSpots}
+              onClearAllSpots={handleClearAllSpots}
               showEditHint={showSpotsEditHint}
+              difficultyFilter={courtDifficultyFilter}
+              onChangeDifficultyFilter={setCourtDifficultyFilter}
+              difficultyFilterOptions={courtDifficultyOptions}
+              templates={SPOT_TEMPLATES}
+              activeTemplateId={activeTemplateId}
+              onApplyTemplate={handleApplyTemplate}
             />
-
-            <div className="shrink-0 text-center mt-3 bg-[#1C202A] px-3 py-2 rounded-xl border border-[#2A2F3D]">
-              <p className="text-[#848B98] text-[10px] flex items-center justify-center gap-1">
-                <Target size={11} /> מתוך <span className="text-[#FF8A00] font-bold">{latestSession?.targetShots || settings.targetShots}</span> זריקות · לחץ על מספר לפרטים
-              </p>
-              {comparisonSession && (
-                <div className="flex items-center justify-center gap-3 mt-1 text-[9px] text-[#848B98]">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: TREND_COLORS.up }}></span>שיא חדש</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: TREND_COLORS.same }}></span>ללא שינוי</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: TREND_COLORS.down }}></span>ירידה</span>
-                </div>
-              )}
-            </div>
           </div>
         )}
 
