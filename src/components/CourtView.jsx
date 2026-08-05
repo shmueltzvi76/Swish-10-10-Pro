@@ -194,9 +194,10 @@ export default function CourtView({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 flex items-center justify-center">
+      <div className={`flex-1 min-h-0 flex justify-center ${isFull ? 'items-start overflow-y-auto' : 'items-center'}`}>
         <div
-          className="relative h-full max-w-full bg-[#A9713F] rounded-3xl border-[6px] border-white shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-hidden"
+          className={`relative bg-[#A9713F] rounded-3xl border-[6px] border-white shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-hidden
+            ${isFull ? 'w-full shrink-0' : 'h-full max-w-full'}`}
           style={{ aspectRatio: isFull ? `100 / ${FULL_RENDER_H}` : `100 / ${HALF_RENDER_H}` }}
         >
           <div className="absolute inset-0 bg-black/15 pointer-events-none"></div>
