@@ -1,10 +1,8 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Pencil, Check, RotateCcw } from 'lucide-react';
 import { getTrend } from '../utils/trend';
 import { TREND_COLORS } from '../data/constants';
 
-const GRID_COLS = 10;
-const GRID_ROWS = 12;
 const COURT_H = 125;
 
 // סימוני מגרש אמיתיים: בקבוק, קשתות עונשין, איזור מוגבל, בלוקים, קרש/סל וקשת שלישיה
@@ -45,17 +43,21 @@ export default function CourtView({
   showEditHint
 }) {
   const isFull = courtMode === 'full';
-  const cellW = 100 / GRID_COLS;
-  const cellH = COURT_H / GRID_ROWS;
+  const surfaceRef = useRef(null);
 
-  const gridCells = [];
-  if (editMode) {
-    for (let row = 0; row < GRID_ROWS; row++) {
-      for (let col = 0; col < GRID_COLS; col++) {
-        gridCells.push({ cx: col * cellW + cellW / 2, cy: row * cellH + cellH / 2, key: `${row}-${col}` });
-      }
-    }
-  }
+  // ממיר לחיצה (בכל פיקסל, כולל בדיוק על קווי הקשתות) לקואורדינטת מגרש מדויקת -
+  // המשטח מוגבל תמיד לחצי הקרוב לסל (0-125), גם במצב "מגרש מלא", כי זהו החצי היחיד עם מיקומי זריקה
+  const handleSurfaceClick = (e) => {
+    if (!surfaceRef.current) return;
+    const rect = surfaceRef.current.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const fracX = (e.clientX - rect.left) / rect.width;
+    const fracY = (e.clientY - rect.top) / rect.height;
+    if (fracX < 0 || fracX > 1 || fracY < 0 || fracY > 1) return;
+    const x = Math.round(fracX * 100 * 10) / 10;
+    const y = Math.round(fracY * COURT_H * 10) / 10;
+    onAddSpot(x, y);
+  };
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -103,7 +105,7 @@ export default function CourtView({
       {editMode && (
         <div className="shrink-0 mb-2 px-3 py-2 rounded-xl border border-dashed border-[#FF8A00]/50 bg-[#FF8A00]/10">
           <p className="text-[#FF8A00] text-[11px] font-bold leading-tight">
-            לחיצה על משבצת ריקה מוסיפה מיקום זריקה חדש · לחיצה על מיקום קיים מוחקת אותו
+            לחיצה בכל מקום על המגרש (גם בדיוק על קו או קשת) מוסיפה מיקום זריקה חדש שם · לחיצה על מיקום קיים מוחקת אותו
           </p>
         </div>
       )}
@@ -134,24 +136,13 @@ export default function CourtView({
           </svg>
 
           {editMode && (
-            <svg viewBox={`0 0 100 ${isFull ? 250 : 125}`} className="absolute inset-0 w-full h-full z-[5]">
-              {gridCells.map(cell => (
-                <rect
-                  key={cell.key}
-                  x={cell.cx - cellW / 2 + 0.4}
-                  y={cell.cy - cellH / 2 + 0.4}
-                  width={cellW - 0.8}
-                  height={cellH - 0.8}
-                  rx="1"
-                  fill="rgba(255,255,255,0.05)"
-                  stroke="rgba(255,255,255,0.18)"
-                  strokeWidth="0.3"
-                  strokeDasharray="1.2 1"
-                  className="cursor-pointer hover:fill-[#FF8A00]/30"
-                  onClick={() => onAddSpot(cell.cx, cell.cy)}
-                />
-              ))}
-            </svg>
+            <div
+              ref={surfaceRef}
+              onClick={handleSurfaceClick}
+              aria-label="לחץ בכל מקום על המגרש כדי להוסיף מיקום זריקה"
+              className="absolute inset-x-0 top-0 z-[5] cursor-crosshair"
+              style={{ height: isFull ? '50%' : '100%' }}
+            />
           )}
 
           {spots.map((spot) => {
