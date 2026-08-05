@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell } from 'lucide-react';
+import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell, Code2, Phone, Mail } from 'lucide-react';
 
 import { getTrend } from './utils/trend';
 import {
@@ -803,6 +803,28 @@ export default function App() {
                 >
                   <Trash2 size={18} /> מחיקת כל הנתונים
                 </button>
+              </div>
+
+              <div className="border-t border-[#2A2F3D] pt-6">
+                <div className="bg-gradient-to-br from-[#1C202A] to-[#161920] p-4 rounded-2xl border border-[#2A2F3D]">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#FF8A00] to-[#E55D00] flex items-center justify-center shrink-0 shadow-lg shadow-[#FF8A00]/20">
+                      <Code2 size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <p className="text-white font-bold text-sm">שמואל צבי כהן</p>
+                      <p className="text-[#848B98] text-[11px]">אדריכל קוד • מלמד תכנות ובונה מערכות, אפליקציות ואתרים</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 pt-3 border-t border-[#2A2F3D]/60">
+                    <a href="tel:0539311073" className="flex items-center gap-2 text-[#A0A6B1] text-xs hover:text-[#FF8A00] transition-colors" dir="ltr">
+                      <Phone size={13} className="shrink-0" /> 053-931-1073
+                    </a>
+                    <a href="mailto:shmueltzvi76@gmail.com" className="flex items-center gap-2 text-[#A0A6B1] text-xs hover:text-[#FF8A00] transition-colors" dir="ltr">
+                      <Mail size={13} className="shrink-0" /> shmueltzvi76@gmail.com
+                    </a>
+                  </div>
+                </div>
               </div>
 
               <button
