@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Pencil, Check, RotateCcw, Trash2, ChevronDown, Filter, LayoutTemplate, Target } from 'lucide-react';
 import { getTrend } from '../utils/trend';
 import { TREND_COLORS } from '../data/constants';
@@ -66,8 +66,15 @@ export default function CourtView({
 }) {
   const isFull = courtMode === 'full';
   const surfaceRef = useRef(null);
+  const scrollContainerRef = useRef(null);
   const [showInfo, setShowInfo] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+
+  // בכל מעבר בין חצי/מלא מגרש, וכן בכניסה/יציאה ממצב עריכה, מאפסים את מיקום הגלילה של המגרש -
+  // אחרת נשארים על גלילה קודמת ורואים רק את החצי הרחוק/דקורטיבי (ריק, לא ניתן להוספת מיקומים) של מגרש מלא
+  useEffect(() => {
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, [courtMode, editMode]);
 
   const latestPerc = computeSessionPerc(latestSession);
   const comparisonPerc = computeSessionPerc(comparisonSession);
@@ -194,7 +201,7 @@ export default function CourtView({
         </div>
       )}
 
-      <div className={`flex-1 min-h-0 flex justify-center ${isFull ? 'items-start overflow-y-auto' : 'items-center'}`}>
+      <div ref={scrollContainerRef} className={`flex-1 min-h-0 flex justify-center ${isFull ? 'items-start overflow-y-auto' : 'items-center'}`}>
         <div
           className={`relative bg-[#A9713F] rounded-3xl border-[6px] border-white shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-hidden
             ${isFull ? 'w-full shrink-0' : 'h-full max-w-full'}`}
