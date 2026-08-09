@@ -710,6 +710,7 @@ export default function App() {
   .stat-tile .value.accent { color: #FF8A00; }
   .tags { margin-bottom: 16px; }
   .tags span { display: inline-block; font-size: 10px; font-weight: 700; background: #1C202A; border: 1px solid #2A2F3D; color: #A0A6B1; border-radius: 999px; padding: 4px 10px; margin: 0 4px 4px 0; }
+  .demo-banner { font-size: 11px; font-weight: 700; color: #FF8A00; background: rgba(255,138,0,0.1); border: 1px dashed rgba(255,138,0,0.5); border-radius: 12px; padding: 8px 12px; margin-bottom: 16px; }
   .court-wrap { background: #A9713F; border-radius: 22px; border: 5px solid #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden; margin-bottom: 16px; }
   .section-title { font-size: 14px; font-weight: 800; color: #fff; margin-bottom: 10px; }
   .insight-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
@@ -735,6 +736,8 @@ export default function App() {
         <p class="date">דוח התקדמות · ${dateStr}</p>
       </div>
     </header>
+
+    ${isDemoData ? '<p class="demo-banner">✨ נתוני הדגמה בלבד - לא אימון אמיתי</p>' : ''}
 
     <div class="stat-grid">
       <div class="stat-tile">
@@ -1211,7 +1214,7 @@ export default function App() {
               </div>
             )}
 
-            {!isDemoData && latestSession && (
+            {latestSession && (
               <button
                 onClick={shareProgressReport}
                 className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#FF8A00] to-[#E55D00] text-[#0F1115] font-black text-sm py-3.5 rounded-2xl shadow-lg shadow-[#FF8A00]/20 active:scale-95 transition-transform"
