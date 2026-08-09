@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell, Code2, Phone, Mail } from 'lucide-react';
+import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell, Code2, Phone, Mail, Share2 } from 'lucide-react';
 
 import { getTrend } from './utils/trend';
 import {
@@ -646,6 +646,168 @@ export default function App() {
 
   const difficultyLabel = (id) => DIFFICULTY_MODIFIERS.find(m => m.id === id)?.label || id;
 
+  // === "שתף התקדמות עם חבר" - בונה דף HTML עצמאי (בלי שום תלות חיצונית) עם המגרש,
+  // הסטטיסטיקות והמסקנות הנוכחיות, כדי שאפשר יהיה לשלוח אותו כקובץ בוואטסאפ ולפתוח בכל דפדפן.
+  // משתמש ב-spots (הפריסה הפעילה בפועל, כולל מיקומים מותאמים אישית/תבניות) ובנתוני האימון
+  // האחרון/ההשוואה כמו שהם - ללא לוגיקת "מיזוג אפקטיבי", כי כאן כל אימון כולל תמיד ערך מלא לכל עמדה שנזרקה בו.
+  const buildProgressReportHtml = () => {
+    const reportSpots = spots.map(spot => {
+      const score = latestSession?.data[spot.id];
+      if (score === undefined) return null;
+      const trend = getTrend(score, comparisonSession?.data[spot.id]);
+      return { x: spot.x, y: spot.y, score, color: trend ? TREND_COLORS[trend] : '#FFFFFF' };
+    }).filter(Boolean);
+
+    const courtDotsSvg = reportSpots.map(s => `
+    <g>
+      <circle cx="${s.x}" cy="${s.y}" r="3.6" fill="${s.color}" stroke="rgba(0,0,0,0.35)" stroke-width="0.3" />
+      <text x="${s.x}" y="${s.y}" text-anchor="middle" dominant-baseline="central" font-size="3.6" font-weight="900" fill="#0F1115" font-family="Arial, sans-serif">${s.score}</text>
+    </g>`).join('');
+
+    const insightsHtml = insights.map(insight => `
+    <div class="insight-row">
+      <span class="insight-dot" style="background:${TREND_COLORS[insight.type]}"></span>
+      <p>${insight.text}</p>
+    </div>`).join('');
+
+    const zoneRowsHtml = GROUP_ORDER.map(group => {
+      const data = stats.zoneData[group];
+      if (data.allTimeAttempts === 0) return '';
+      const perc = Math.round((data.allTimeMade / data.allTimeAttempts) * 100);
+      return `
+    <div class="zone-row">
+      <div class="zone-row-top"><span>${group}</span><span>${perc}%</span></div>
+      <div class="zone-bar"><div class="zone-bar-fill" style="width:${perc}%"></div></div>
+      <p class="zone-sub">${data.allTimeMade} / ${data.allTimeAttempts}</p>
+    </div>`;
+    }).join('');
+
+    const difficultyTagsHtml = (latestSession?.difficulty && latestSession.difficulty.length > 0)
+      ? `<p class="tags">${latestSession.difficulty.map(id => `<span>${difficultyLabel(id)}</span>`).join('')}</p>`
+      : '';
+
+    const dateStr = new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+    return `<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>דוח התקדמות - SWISH-PRO 10/10</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0F1115; color: #E0E2E7; font-family: -apple-system, "Segoe UI", Arial, sans-serif; padding: 20px 14px 40px; }
+  .wrap { max-width: 420px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .logo { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg,#FF8A00,#E55D00); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 8px 20px rgba(255,138,0,0.25); }
+  h1 { font-size: 20px; font-weight: 900; letter-spacing: 0.5px; text-transform: uppercase; }
+  .date { font-size: 12px; color: #848B98; margin-top: 2px; }
+  .card { background: #1C202A; border: 1px solid #2A2F3D; border-radius: 20px; padding: 16px; margin-bottom: 16px; }
+  .stat-grid { display: flex; gap: 12px; margin-bottom: 16px; }
+  .stat-tile { flex: 1; background: #1C202A; border: 1px solid #2A2F3D; border-radius: 16px; padding: 14px 10px; text-align: center; }
+  .stat-tile .label { font-size: 9px; font-weight: 700; color: #848B98; text-transform: uppercase; margin-bottom: 4px; }
+  .stat-tile .value { font-size: 20px; font-weight: 900; color: #fff; }
+  .stat-tile .value.accent { color: #FF8A00; }
+  .tags { margin-bottom: 16px; }
+  .tags span { display: inline-block; font-size: 10px; font-weight: 700; background: #1C202A; border: 1px solid #2A2F3D; color: #A0A6B1; border-radius: 999px; padding: 4px 10px; margin: 0 4px 4px 0; }
+  .court-wrap { background: #A9713F; border-radius: 22px; border: 5px solid #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden; margin-bottom: 16px; }
+  .section-title { font-size: 14px; font-weight: 800; color: #fff; margin-bottom: 10px; }
+  .insight-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
+  .insight-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .insight-row p { font-size: 12px; line-height: 1.5; color: #E0E2E7; }
+  .zone-row { margin-bottom: 14px; }
+  .zone-row:last-child { margin-bottom: 0; }
+  .zone-row-top { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .zone-bar { height: 8px; border-radius: 4px; background: #2A2F3D; overflow: hidden; }
+  .zone-bar-fill { height: 100%; background: linear-gradient(90deg,#FF8A00,#E55D00); border-radius: 4px; }
+  .zone-sub { font-size: 10px; color: #848B98; margin-top: 3px; direction: ltr; text-align: right; }
+  footer { text-align: center; margin-top: 24px; }
+  footer p { font-size: 13px; color: #A0A6B1; margin-bottom: 10px; }
+  footer a { display: inline-block; background: linear-gradient(90deg,#FF8A00,#E55D00); color: #0F1115; font-weight: 900; font-size: 14px; padding: 12px 24px; border-radius: 14px; text-decoration: none; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">🏆</div>
+      <div>
+        <h1>SWISH-PRO 10/10</h1>
+        <p class="date">דוח התקדמות · ${dateStr}</p>
+      </div>
+    </header>
+
+    <div class="stat-grid">
+      <div class="stat-tile">
+        <p class="label">אימון אחרון</p>
+        <p class="value accent">${stats.lastPerc}%</p>
+      </div>
+      <div class="stat-tile">
+        <p class="label">אחוז כל הזמנים</p>
+        <p class="value">${stats.overallPerc}%</p>
+      </div>
+      <div class="stat-tile">
+        <p class="label">סלי שדה</p>
+        <p class="value">${stats.totalMade}/${stats.totalShots}</p>
+      </div>
+    </div>
+
+    ${difficultyTagsHtml}
+
+    <div class="court-wrap">
+      <svg viewBox="0 0 100 125" width="100%" style="display:block">
+        <rect x="0" y="0" width="100" height="125" fill="#A9713F" />
+        <rect x="25" y="0" width="50" height="55" fill="#96602f" stroke="white" stroke-width="1.2" />
+        <path d="M 25 55 A 25 25 0 0 0 75 55" fill="none" stroke="white" stroke-width="1.2" />
+        <path d="M 25 55 A 25 25 0 0 1 75 55" fill="none" stroke="white" stroke-dasharray="2 2" stroke-width="1.2" />
+        <line x1="38" y1="12" x2="62" y2="12" stroke="white" stroke-width="2.5" stroke-linecap="round" />
+        <circle cx="50" cy="16" r="3.5" fill="#FF4D4D" stroke="white" stroke-width="1" />
+        <path d="M 6 0 L 6 16 A 44 74 0 0 0 94 16 L 94 0" fill="none" stroke="white" stroke-width="1.2" />
+        ${courtDotsSvg}
+      </svg>
+    </div>
+
+    ${insights.length ? `<div class="card">
+      <p class="section-title">✨ מסקנות</p>
+      ${insightsHtml}
+    </div>` : ''}
+
+    <div class="card">
+      <p class="section-title">📊 חלוקה לאזורים (כל הזמנים)</p>
+      ${zoneRowsHtml}
+    </div>
+
+    <footer>
+      <p>בוא תתחרה איתי או תשתף את הביצועים שלך! 🏀</p>
+      <a href="https://swish-10-10-pro.vercel.app" target="_blank" rel="noopener">נסה את SWISH-PRO 10/10</a>
+    </footer>
+  </div>
+</body>
+</html>`;
+  };
+
+  const shareProgressReport = async () => {
+    const html = buildProgressReportHtml();
+    const filename = `swish-pro-10-10-התקדמות-${new Date().toISOString().slice(0, 10)}.html`;
+    const file = new File([html], filename, { type: 'text/html' });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'דוח התקדמות שלי ב-SWISH-PRO 10/10' });
+        return;
+      } catch {
+        // המשתמש ביטל את השיתוף, או שהשיתוף נכשל בפועל - נופלים חזרה על הורדה רגילה
+      }
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="h-dvh flex flex-col overflow-hidden bg-[#0F1115] text-[#E0E2E7] font-sans selection:bg-[#FF8A00]/30" dir="rtl">
 
@@ -1047,6 +1209,16 @@ export default function App() {
                   </div>
                 )}
               </div>
+            )}
+
+            {!isDemoData && latestSession && (
+              <button
+                onClick={shareProgressReport}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#FF8A00] to-[#E55D00] text-[#0F1115] font-black text-sm py-3.5 rounded-2xl shadow-lg shadow-[#FF8A00]/20 active:scale-95 transition-transform"
+              >
+                <Share2 size={18} />
+                שתף התקדמות עם חבר
+              </button>
             )}
 
             {/* מסקנות ותובנות */}
