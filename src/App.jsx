@@ -168,6 +168,46 @@ export default function App() {
     localStorage.setItem(STORAGE_COURT_DIFFICULTY_FILTER_KEY, courtDifficultyFilter);
   }, [courtDifficultyFilter]);
 
+  // בכניסה לדף ההזנה (לא בעריכה, לא במצב הדגמה), אם האימון האחרון היה חלקי ועדיין לא הוכרע
+  // לגביו - שואל להמשיך אותו / למחוק אותו / להשאיר אותו כמו שהוא
+  useEffect(() => {
+    if (activeTab !== 'input' || editingId || isDemoData) return;
+    const last = sessions[0];
+    if (!last || !last.isShort || last.shortDismissed) return;
+
+    let cancelled = false;
+    (async () => {
+      const filledCount = Object.keys(last.data).length;
+      const wantsToContinue = await confirmModern(
+        `האימון האחרון שלך היה חלקי (${filledCount} מתוך ${spots.length} מיקומים). להמשיך אותו?`,
+        { title: 'אימון חלקי', confirmText: 'כן, להמשיך' }
+      );
+      if (cancelled) return;
+      if (wantsToContinue) {
+        handleEdit(last);
+        return;
+      }
+      const wantsToDelete = await confirmModern(
+        'למחוק את האימון החלקי הקודם? (אם לא, הוא יישאר שמור כפי שהוא)',
+        { title: 'אימון חלקי', confirmText: 'כן, למחוק', cancelText: 'לא, להשאיר', danger: true }
+      );
+      if (cancelled) return;
+      if (wantsToDelete) {
+        setSessions(prev => {
+          const filtered = prev.filter(s => s.id !== last.id);
+          if (filtered.length === 0) localStorage.removeItem(STORAGE_DATA_KEY);
+          return filtered;
+        });
+        if (journalSessionId === last.id) setJournalSessionId(null);
+      } else {
+        setSessions(prev => prev.map(s => s.id === last.id ? { ...s, shortDismissed: true } : s));
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, editingId]);
+
   const toggleSpotEditMode = () => {
     setSpotEditMode(prev => !prev);
     if (showSpotsEditHint) {
@@ -246,16 +286,23 @@ export default function App() {
 
     if (editingId) {
       const updatedSessions = sessions.map(s =>
-        s.id === editingId ? { ...s, data: cleanedInput, difficulty: currentDifficulty } : s
+        s.id === editingId
+          ? { ...s, data: cleanedInput, difficulty: currentDifficulty, isShort: spots.some(spot => cleanedInput[spot.id] === undefined) }
+          : s
       );
       setSessions(updatedSessions);
     } else {
+      // אימון קצר - כשלא כל המיקומים הוזנו. לא ממציאים נתונים למיקומים שלא נזרקו - הם פשוט
+      // לא נכללים באימון הזה. הסטטיסטיקות מחשבות אחוז רק מתוך המיקומים שבאמת נזרקו.
+      const isShortSession = spots.some(s => cleanedInput[s.id] === undefined);
+
       const newSession = {
         id: Date.now(),
         date: new Date().toISOString(),
         targetShots: settings.targetShots,
         data: cleanedInput,
-        difficulty: currentDifficulty
+        difficulty: currentDifficulty,
+        ...(isShortSession ? { isShort: true, notes: { general: '<b>היום היה אימון קצר</b>', zones: {} } } : {})
       };
 
       if (isDemoData) {
@@ -269,7 +316,13 @@ export default function App() {
         const priorBest = priorPercs.length > 0 ? Math.max(...priorPercs) : null;
         if (newPerc !== null && priorBest !== null && newPerc > priorBest) {
           const ma = sessionMadeAttempts(newSession);
-          setRecordCelebration({ perc: newPerc, made: ma.made, total: ma.total });
+          setRecordCelebration({
+            perc: newPerc,
+            made: ma.made,
+            total: ma.total,
+            isShort: isShortSession,
+            spotsCount: Object.keys(cleanedInput).length
+          });
         }
 
         setSessions([newSession, ...sessions]);
