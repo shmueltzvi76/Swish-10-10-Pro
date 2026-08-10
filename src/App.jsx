@@ -21,6 +21,7 @@ import {
 import { DEFAULT_SPOTS, GROUP_ORDER, suggestSpotName, suggestSpotGroup, nextCustomSpotId } from './data/spots';
 import { SPOT_TEMPLATES, getTemplateById } from './data/templates';
 
+import DialogHost, { confirmModern, alertModern } from './components/DialogHost';
 import CustomDropdown from './components/CustomDropdown';
 import HybridInput from './components/HybridInput';
 import RichTextEditor from './components/RichTextEditor';
@@ -206,23 +207,23 @@ export default function App() {
     setActiveTemplate(null);
   };
 
-  const handleResetSpots = () => {
-    if (!window.confirm('לאפס את כל המיקומים המותאמים אישית ולחזור לברירת המחדל?')) return;
+  const handleResetSpots = async () => {
+    if (!await confirmModern('לאפס את כל המיקומים המותאמים אישית ולחזור לברירת המחדל?', { title: 'איפוס מיקומים' })) return;
     setSpots(DEFAULT_SPOTS);
     localStorage.removeItem(STORAGE_SPOTS_KEY);
     setActiveTemplate('default');
   };
 
-  const handleClearAllSpots = () => {
-    if (!window.confirm('למחוק את כל המיקומים מהמגרש (כולל ברירת המחדל) ולהתחיל מלוח ריק?')) return;
+  const handleClearAllSpots = async () => {
+    if (!await confirmModern('למחוק את כל המיקומים מהמגרש (כולל ברירת המחדל) ולהתחיל מלוח ריק?', { title: 'מחיקת כל המיקומים', danger: true })) return;
     setSpots([]);
     localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify([]));
     setActiveTemplate(null);
   };
 
-  const handleApplyTemplate = (template) => {
+  const handleApplyTemplate = async (template) => {
     if (activeTemplateId === template.id) return;
-    if (!window.confirm(`להחליף את המיקומים הנוכחיים בתבנית "${template.name}"?`)) return;
+    if (!await confirmModern(`להחליף את המיקומים הנוכחיים בתבנית "${template.name}"?`, { title: 'החלפת תבנית' })) return;
     const nextSpots = template.spots || DEFAULT_SPOTS;
     setSpots(nextSpots);
     if (template.spots) localStorage.setItem(STORAGE_SPOTS_KEY, JSON.stringify(nextSpots));
@@ -291,8 +292,8 @@ export default function App() {
     setActiveTab('input');
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm('האם למחוק אימון זה?')) {
+  const handleDelete = async (id) => {
+    if (await confirmModern('האם למחוק אימון זה?', { title: 'מחיקת אימון', danger: true })) {
       const filtered = sessions.filter(s => s.id !== id);
       setSessions(filtered);
       if (filtered.length === 0) localStorage.removeItem(STORAGE_DATA_KEY);
@@ -321,8 +322,8 @@ export default function App() {
     return Object.values(notes.zones || {}).some(html => strip(html));
   };
 
-  const clearAllData = () => {
-    if (window.confirm('אזהרה: כל היסטוריית האימונים תימחק לצמיתות. להמשיך?')) {
+  const clearAllData = async () => {
+    if (await confirmModern('אזהרה: כל היסטוריית האימונים תימחק לצמיתות. להמשיך?', { title: 'מחיקת כל הנתונים', danger: true })) {
       setSessions([]);
       setIsDemoData(false);
       setEditingId(null);
@@ -368,20 +369,20 @@ export default function App() {
     e.target.value = '';
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const parsed = JSON.parse(reader.result);
         const importedSessions = Array.isArray(parsed?.sessions) ? parsed.sessions : (Array.isArray(parsed) ? parsed : null);
         if (!importedSessions || importedSessions.length === 0) {
-          window.alert('קובץ לא תקין - לא נמצאו אימונים לייבוא.');
+          await alertModern('קובץ לא תקין - לא נמצאו אימונים לייבוא.', { title: 'שגיאת ייבוא' });
           return;
         }
         const looksValid = importedSessions.every(s => s && typeof s === 'object' && s.data && typeof s.data === 'object' && s.date);
         if (!looksValid) {
-          window.alert('קובץ לא תקין - מבנה הנתונים לא מוכר.');
+          await alertModern('קובץ לא תקין - מבנה הנתונים לא מוכר.', { title: 'שגיאת ייבוא' });
           return;
         }
-        if (!window.confirm(`נמצאו ${importedSessions.length} אימונים בקובץ. הייבוא יחליף את כל הנתונים הנוכחיים באפליקציה. להמשיך?`)) return;
+        if (!await confirmModern(`נמצאו ${importedSessions.length} אימונים בקובץ. הייבוא יחליף את כל הנתונים הנוכחיים באפליקציה. להמשיך?`, { title: 'ייבוא נתונים' })) return;
 
         setIsDemoData(false);
         setEditingId(null);
@@ -391,9 +392,9 @@ export default function App() {
           setSettings(prev => ({ ...prev, ...parsed.settings }));
         }
         localStorage.setItem(STORAGE_ONBOARDED_KEY, 'true');
-        window.alert('הנתונים יובאו בהצלחה!');
+        await alertModern('הנתונים יובאו בהצלחה!', { title: 'ייבוא הושלם' });
       } catch {
-        window.alert('קובץ לא תקין - לא ניתן לקרוא אותו כ-JSON.');
+        await alertModern('קובץ לא תקין - לא ניתן לקרוא אותו כ-JSON.', { title: 'שגיאת ייבוא' });
       }
     };
     reader.readAsText(file);
@@ -813,6 +814,8 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden bg-[#0F1115] text-[#E0E2E7] font-sans selection:bg-[#FF8A00]/30" dir="rtl">
+
+      <DialogHost />
 
       {/* ===================== מודל פרטי נקודה ===================== */}
       {selectedSpotDetails && (
