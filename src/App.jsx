@@ -1016,12 +1016,15 @@ export default function App() {
             </div>
             <h3 className="text-2xl font-black text-white mb-1">שיא אישי חדש!</h3>
             <p className="text-[#848B98] text-sm mb-5">
-              {recordCelebration.isShort
-                ? `האחוז הגבוה ביותר שלך אי פעם באימון (כולל אימון קצר - ${recordCelebration.spotsCount} מקומות)`
-                : 'האחוז הגבוה ביותר שלך אי פעם באימון שלם'}
+              {recordCelebration.isShort ? 'האחוז הגבוה ביותר שלך אי פעם באימון' : 'האחוז הגבוה ביותר שלך אי פעם באימון שלם'}
             </p>
             <p className="text-5xl font-black text-[#FF8A00] mb-1">{recordCelebration.perc}%</p>
-            <p dir="ltr" className="text-[#848B98] text-sm mb-6">{recordCelebration.made}/{recordCelebration.total}</p>
+            <p dir="ltr" className={`text-[#848B98] text-sm ${recordCelebration.isShort ? 'mb-2' : 'mb-6'}`}>{recordCelebration.made}/{recordCelebration.total}</p>
+            {recordCelebration.isShort && (
+              <p className="text-[#FF8A00] text-[11px] font-bold bg-[#FF8A00]/15 px-3 py-1.5 rounded-lg inline-block mb-6">
+                מאימון קצר - {recordCelebration.spotsCount} מתוך {spots.length} מקומות שנזרקו
+              </p>
+            )}
             <button
               onClick={() => setRecordCelebration(null)}
               className="w-full bg-gradient-to-r from-[#FF8A00] to-[#E55D00] text-[#0F1115] font-black text-lg py-3.5 rounded-xl shadow-lg shadow-[#FF8A00]/20"
@@ -1327,6 +1330,16 @@ export default function App() {
         {activeTab === 'stats' && stats && !showSettingsModal && (
           <div className="p-4 animate-in fade-in space-y-6 pb-10">
 
+            {latestSession && (
+              <button
+                onClick={shareProgressReport}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#FF8A00] to-[#E55D00] text-[#0F1115] font-black text-sm py-3.5 rounded-2xl shadow-lg shadow-[#FF8A00]/20 active:scale-95 transition-transform"
+              >
+                <Share2 size={18} />
+                שתף התקדמות עם חבר
+              </button>
+            )}
+
             {/* סיכום אימון אחרון! */}
             {latestSession && (
               <div className="bg-gradient-to-br from-[#1C202A] to-[#161920] rounded-3xl p-5 border border-[#FF8A00]/30 shadow-lg relative overflow-hidden">
@@ -1340,7 +1353,11 @@ export default function App() {
                     <p className="text-4xl font-black leading-none" style={{ color: effectiveOverallTrendColor }}>{formatPerc(effectiveLatestPerc)}<span className="text-xl">%</span></p>
                     {effectiveOverallTrend && (
                       <p className="text-[10px] font-bold mt-1 flex items-center gap-1" style={{ color: effectiveOverallTrendColor }}>
-                        {effectiveOverallTrend === 'up' && <><ArrowUp size={11} /> {isAllTimeRecord ? 'שיא כל הזמנים!' : 'עלייה מהאימון הקודם'}</>}
+                        {effectiveOverallTrend === 'up' && (
+                          isAllTimeRecord
+                            ? <><ArrowUp size={11} /> שיא כל הזמנים!</>
+                            : <><ArrowUp size={11} /> עלייה מהאימון הקודם{priorBestEffectivePerc !== null ? ` - טרם שברת את השיא (${formatPerc(priorBestEffectivePerc)}%)` : ''}</>
+                        )}
                         {effectiveOverallTrend === 'down' && <><ArrowDown size={11} /> ירידה מהאימון הקודם</>}
                         {effectiveOverallTrend === 'same' && <><Minus size={11} /> ללא שינוי</>}
                       </p>
@@ -1366,16 +1383,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-            )}
-
-            {latestSession && (
-              <button
-                onClick={shareProgressReport}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#FF8A00] to-[#E55D00] text-[#0F1115] font-black text-sm py-3.5 rounded-2xl shadow-lg shadow-[#FF8A00]/20 active:scale-95 transition-transform"
-              >
-                <Share2 size={18} />
-                שתף התקדמות עם חבר
-              </button>
             )}
 
             {/* מסקנות ותובנות */}
