@@ -354,7 +354,7 @@ export default function App() {
   };
 
   const handleDelete = async (id) => {
-    if (await confirmModern('האם למחוק אימון זה?', { title: 'מחיקת אימון', danger: true })) {
+    if (await confirmModern('האם למחוק אימון זה?', { title: 'מחיקת אימון', confirmText: 'כן, מחק', danger: true })) {
       const filtered = sessions.filter(s => s.id !== id);
       setSessions(filtered);
       if (filtered.length === 0) localStorage.removeItem(STORAGE_DATA_KEY);
@@ -384,7 +384,7 @@ export default function App() {
   };
 
   const clearAllData = async () => {
-    if (await confirmModern('אזהרה: כל היסטוריית האימונים תימחק לצמיתות. להמשיך?', { title: 'מחיקת כל הנתונים', danger: true })) {
+    if (await confirmModern('אזהרה: כל היסטוריית האימונים תימחק לצמיתות. להמשיך?', { title: 'איפוס נתונים', confirmText: 'כן, מחק הכל', danger: true })) {
       setSessions([]);
       setIsDemoData(false);
       setEditingId(null);
@@ -1355,7 +1355,7 @@ export default function App() {
                       <p className="text-[10px] font-bold mt-1 flex items-center gap-1" style={{ color: effectiveOverallTrendColor }}>
                         {effectiveOverallTrend === 'up' && (
                           isAllTimeRecord
-                            ? <><ArrowUp size={11} /> שיא כל הזמנים!</>
+                            ? <><ArrowUp size={11} /> שיא חדש!</>
                             : <><ArrowUp size={11} /> עלייה מהאימון הקודם{priorBestEffectivePerc !== null ? ` - טרם שברת את השיא (${formatPerc(priorBestEffectivePerc)}%)` : ''}</>
                         )}
                         {effectiveOverallTrend === 'down' && <><ArrowDown size={11} /> ירידה מהאימון הקודם</>}
@@ -1369,9 +1369,16 @@ export default function App() {
                   </div>
                 </div>
                 {latestSession.isShort && (
-                  <p className="text-[10px] text-[#FF8A00] font-bold mt-2 relative z-10">
-                    אימון קצר - {Object.keys(latestSession.data).length} מתוך {spots.length} מקומות נזרקו. התמונה למעלה משלימה מקומות שלא נזרקו מהערך האמיתי האחרון שלהם.
-                  </p>
+                  <div className="mt-3 pt-3 border-t border-[#2A2F3D]/60 flex justify-between items-end relative z-10">
+                    <div>
+                      <p className="text-xl font-black leading-none text-[#FF8A00]">{stats.lastPerc}<span className="text-sm">%</span></p>
+                      <p className="text-[#FF8A00] text-[9px] font-bold mt-1">מהאימון הקצר</p>
+                    </div>
+                    <div className="text-right">
+                      <p dir="ltr" className="text-[#A0A6B1] text-xs font-bold">{stats.lastMade} / {stats.lastShots}</p>
+                      <p className="text-[#848B98] text-[9px]">קליעות מהאימון הקצר</p>
+                    </div>
+                  </div>
                 )}
                 {latestSession.difficulty && latestSession.difficulty.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-3 relative z-10">
@@ -1577,12 +1584,12 @@ export default function App() {
                   return (
                     <div key={session.id} className="bg-[#1C202A] p-4 rounded-xl border border-[#2A2F3D] flex justify-between items-center relative overflow-hidden group">
                       <div>
-                        <p className="text-white font-bold text-sm flex items-center gap-1.5">
-                          אימון {sessions.length - idx}
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-white font-bold text-sm">אימון {sessions.length - idx}</p>
                           {session.isShort && (
-                            <span className="text-[8px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] border border-[#FF8A00]/40 rounded-full px-1.5 py-0.5">אימון קצר</span>
+                            <span className="text-[9px] font-bold text-[#FF8A00] bg-[#FF8A00]/15 px-1.5 py-0.5 rounded-md">אימון קצר</span>
                           )}
-                        </p>
+                        </div>
                         <p className="text-[10px] text-[#848B98] mt-0.5">{new Date(session.date).toLocaleString('he-IL')}</p>
                         {session.difficulty && session.difficulty.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
@@ -1656,12 +1663,12 @@ export default function App() {
                               <FileText size={14} className={noted ? 'text-[#FF8A00]' : 'text-[#596070]'} />
                             </div>
                             <div>
-                              <p className="text-white font-bold text-sm flex items-center gap-1.5">
-                                אימון {sessions.length - idx}
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-white font-bold text-sm">אימון {sessions.length - idx}</p>
                                 {session.isShort && (
-                                  <span className="text-[8px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] border border-[#FF8A00]/40 rounded-full px-1.5 py-0.5">אימון קצר</span>
+                                  <span className="text-[9px] font-bold text-[#FF8A00] bg-[#FF8A00]/15 px-1.5 py-0.5 rounded-md">אימון קצר</span>
                                 )}
-                              </p>
+                              </div>
                               <p className="text-[10px] text-[#848B98] mt-0.5">{new Date(session.date).toLocaleString('he-IL')}</p>
                               <p className="text-[10px] mt-0.5" style={{ color: noted ? '#FF8A00' : '#596070' }}>{noted ? 'יש הערות' : 'אין הערות עדיין'}</p>
                             </div>
@@ -1693,12 +1700,7 @@ export default function App() {
 
               <div className="bg-[#1C202A] p-4 rounded-2xl border border-[#2A2F3D] flex justify-between items-center mb-6">
                 <div>
-                  <p className="text-white font-bold text-sm flex items-center gap-1.5">
-                    {new Date(journalSession.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' })}
-                    {journalSession.isShort && (
-                      <span className="text-[8px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] border border-[#FF8A00]/40 rounded-full px-1.5 py-0.5">אימון קצר</span>
-                    )}
-                  </p>
+                  <p className="text-white font-bold text-sm">{new Date(journalSession.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' })}</p>
                   <p className="text-[10px] text-[#848B98] mt-0.5" dir="ltr">{jMade}/{jTotal} קליעות</p>
                 </div>
                 <span className="text-xl font-black" style={{ color: jTrendColor }}>{jPerc}%</span>

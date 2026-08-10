@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 
 // דיאלוגי אישור/התראה מודרניים במקום window.confirm/window.alert המכוערים - ממומש כ"סינגלטון"
-// עצמאי (לא context) כדי שכל פונקציה בקובץ תוכל לקרוא לו בלי props.
+// עצמאי (לא context) כדי שכל פונקציה בקובץ תוכל לקרוא לו בלי props. בקשות שמגיעות בזמן שדיאלוג
+// כבר מוצג נכנסות לתור ומוצגות אחת אחרי השנייה - כדי שאף Promise לא יינטש בלי להיפתר (למשל
+// אם אפקט אוטומטי פותח דיאלוג בדיוק כשדיאלוג אחר כבר ממתין לתשובה), מה שעלול "לתקוע" את
+// הפונקציה ה-async שממתינה לו לנצח ולמנוע ממנה להמשיך לרוץ.
 let dialogListener = null;
+const queue = [];
+const showNext = () => {
+  if (dialogListener && queue.length > 0) dialogListener(queue[0]);
+};
 const openDialog = (config) => new Promise((resolve) => {
-  if (dialogListener) dialogListener({ ...config, resolve });
-  else resolve(false);
+  queue.push({ ...config, resolve });
+  if (queue.length === 1) showNext();
 });
 export const confirmModern = (message, opts = {}) => openDialog({ type: 'confirm', message, ...opts });
 export const alertModern = (message, opts = {}) => openDialog({ type: 'alert', message, ...opts });
@@ -15,11 +22,16 @@ export default function DialogHost() {
 
   useEffect(() => {
     dialogListener = (config) => setDialog(config);
+    if (queue.length > 0) setDialog(queue[0]);
     return () => { dialogListener = null; };
   }, []);
 
   if (!dialog) return null;
-  const close = (result) => { dialog.resolve(result); setDialog(null); };
+  const close = (result) => {
+    dialog.resolve(result);
+    queue.shift();
+    setDialog(queue.length > 0 ? queue[0] : null);
+  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in">
