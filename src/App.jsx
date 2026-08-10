@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell, Code2, Phone, Mail, Share2 } from 'lucide-react';
 
 import { getTrend } from './utils/trend';
+import { formatPerc } from './utils/format';
+import { findEffectiveSpotValue, computeEffectiveMerge, computeEffectiveMA, computeEffectivePrevMA, computeEffectivePercAtIndex } from './utils/effectiveSpots';
 import {
   TREND_COLORS,
   STORAGE_DATA_KEY,
@@ -311,15 +313,21 @@ export default function App() {
         localStorage.setItem(STORAGE_ONBOARDED_KEY, 'true');
         setSessions([newSession]);
       } else {
-        const newPerc = sessionOverallPerc(newSession);
-        const priorPercs = sessions.map(sessionOverallPerc).filter(p => p !== null);
-        const priorBest = priorPercs.length > 0 ? Math.max(...priorPercs) : null;
-        if (newPerc !== null && priorBest !== null && newPerc > priorBest) {
-          const ma = sessionMadeAttempts(newSession);
+        // שיא אמיתי נבדק על בסיס האחוז האפקטיבי (הממוזג על כל המיקומים), לא על האחוז הגולמי
+        // של האימון עצמו - אחרת אימון קצר על מיקומים "קלים" יכול להיראות כשיא בטעות (קפיצה זמנית)
+        const tempSessions = [newSession, ...sessions];
+        const newMerge = computeEffectiveMerge(tempSessions, spots);
+        const newMA = computeEffectiveMA(newMerge, settings.targetShots);
+        const newEffectivePerc = newMA.total > 0 ? (newMA.made / newMA.total) * 100 : null;
+        const priorAllTimeBest = sessions.length === 0
+          ? null
+          : (priorBestEffectivePerc !== null ? Math.max(effectiveLatestPerc, priorBestEffectivePerc) : effectiveLatestPerc);
+
+        if (newEffectivePerc !== null && priorAllTimeBest !== null && newEffectivePerc > priorAllTimeBest) {
           setRecordCelebration({
-            perc: newPerc,
-            made: ma.made,
-            total: ma.total,
+            perc: Math.round(newEffectivePerc),
+            made: newMA.made,
+            total: newMA.total,
             isShort: isShortSession,
             spotsCount: Object.keys(cleanedInput).length
           });
@@ -505,12 +513,9 @@ export default function App() {
   // הוא עדיין לא כלול במערך sessions באותה נקודה. בעריכת אימון קיים, "הקודם" הוא האימון
   // האחרון שאינו זה שנערך כרגע.
   const previousSession = editingId ? sessions.find(s => s.id !== editingId) : (sessions[0] || null);
-  // האימון שלפני "האימון הקודם" - כדי לתת גם לערך הרפרנס בדף ההזנה צבע/מגמה משלו
-  const priorToPreviousSession = (() => {
-    if (!previousSession) return null;
-    const idx = sessions.findIndex(s => s.id === previousSession.id);
-    return idx >= 0 ? (sessions[idx + 1] || null) : null;
-  })();
+  // אינדקס אימון "הקודם" בהיסטוריה - נקודת ההתחלה לחיפוש האפקטיבי אחורה לכל עמדה בדף ההזנה,
+  // כדי שגם אם האימון הקודם עצמו היה חלקי, עדיין יוצג ערך רפרנס אמיתי אחרון לכל עמדה
+  const previousSessionIdx = previousSession ? sessions.findIndex(s => s.id === previousSession.id) : -1;
 
   const currentTargetShots = editingId
     ? (sessions.find(s => s.id === editingId)?.targetShots || settings.targetShots)
@@ -546,10 +551,57 @@ export default function App() {
     return Math.round((ma.made / ma.total) * 100);
   };
 
-  const latestSessionPerc = useMemo(() => sessionOverallPerc(latestSession) ?? 0, [latestSession]);
-  const comparisonSessionPerc = useMemo(() => sessionOverallPerc(comparisonSession), [comparisonSession]);
-  const overallTrend = getTrend(latestSessionPerc, comparisonSessionPerc);
-  const overallTrendColor = overallTrend ? TREND_COLORS[overallTrend] : '#FF8A00';
+  // === "תצוגה אפקטיבית" - גרסת "תמונה כללית" (כרטיס סיכום/גרף) על בסיס כל ההיסטוריה,
+  // ללא סינון לפי רמת קושי. מקומות שלא נזרקו באימון האחרון ממשיכים להראות את הערך האמיתי
+  // האחרון שהיה להם, כדי שהתמונה הכללית תמיד תיראה מלאה ועדכנית - גם אחרי אימון קצר.
+  const effectiveLatestMerge = useMemo(() => computeEffectiveMerge(sessions, spots), [sessions, spots]);
+  const effectiveLatestMA = useMemo(
+    () => computeEffectiveMA(effectiveLatestMerge, latestSession?.targetShots || settings.targetShots),
+    [effectiveLatestMerge, latestSession, settings.targetShots]
+  );
+  const effectiveLatestPerc = effectiveLatestMA.total > 0 ? (effectiveLatestMA.made / effectiveLatestMA.total) * 100 : 0;
+
+  const effectivePrevMA = useMemo(
+    () => computeEffectivePrevMA(sessions, spots, comparisonSession?.targetShots || settings.targetShots),
+    [sessions, spots, comparisonSession, settings.targetShots]
+  );
+  const effectivePrevPerc = effectivePrevMA && effectivePrevMA.total > 0 ? (effectivePrevMA.made / effectivePrevMA.total) * 100 : null;
+  const effectiveOverallTrend = getTrend(effectiveLatestPerc, effectivePrevPerc);
+  const effectiveOverallTrendColor = effectiveOverallTrend ? TREND_COLORS[effectiveOverallTrend] : '#FF8A00';
+
+  // "עלייה מהאימון הקודם" ו"שיא חדש" הם לא אותו דבר! עלייה = ביחס לנקודה הקודמת בלבד.
+  // שיא = ביחס לכל ההיסטוריה, מחושב על אותו בסיס אפקטיבי (לא האחוז הגולמי של אימון קצר,
+  // שיכול לקפוץ גבוה בקלות בלי לשקף שיא אמיתי).
+  const priorBestEffectivePerc = useMemo(() => {
+    const percs = sessions.slice(1).map((_, i) => computeEffectivePercAtIndex(sessions, spots, i + 1, settings.targetShots)).filter(p => p !== null);
+    return percs.length > 0 ? Math.max(...percs) : null;
+  }, [sessions, spots, settings.targetShots]);
+  const isAllTimeRecord = priorBestEffectivePerc !== null && effectiveLatestPerc > priorBestEffectivePerc;
+
+  // === אותה תצוגה אפקטיבית, אך על בסיס האימונים המסוננים לפי רמת קושי בלבד - לשימוש במגרש,
+  // כדי שהסינון "יישאר נאמן לעצמו" (לא ימלא מקום חסר מאימון שלא תואם את הסינון הנבחר)
+  const courtEffectiveMerge = useMemo(() => computeEffectiveMerge(courtFilteredSessions, spots), [courtFilteredSessions, spots]);
+  const courtSpotsData = useMemo(() => {
+    const map = {};
+    spots.forEach(spot => {
+      const found = courtEffectiveMerge[spot.id];
+      if (!found) return;
+      const prevFound = findEffectiveSpotValue(courtFilteredSessions, spot.id, found.idx + 1);
+      map[spot.id] = { score: found.value, trend: getTrend(found.value, prevFound?.value) };
+    });
+    return map;
+  }, [courtEffectiveMerge, courtFilteredSessions, spots]);
+  const courtEffectiveMA = useMemo(
+    () => computeEffectiveMA(courtEffectiveMerge, courtLatestSession?.targetShots || settings.targetShots),
+    [courtEffectiveMerge, courtLatestSession, settings.targetShots]
+  );
+  const courtEffectivePerc = courtEffectiveMA.total > 0 ? (courtEffectiveMA.made / courtEffectiveMA.total) * 100 : null;
+  const courtEffectivePrevMA = useMemo(
+    () => computeEffectivePrevMA(courtFilteredSessions, spots, courtComparisonSession?.targetShots || settings.targetShots),
+    [courtFilteredSessions, spots, courtComparisonSession, settings.targetShots]
+  );
+  const courtEffectivePrevPerc = courtEffectivePrevMA && courtEffectivePrevMA.total > 0 ? (courtEffectivePrevMA.made / courtEffectivePrevMA.total) * 100 : null;
+  const courtEffectiveTrend = getTrend(courtEffectivePerc, courtEffectivePrevPerc);
 
   const stats = useMemo(() => {
     if (!sessions.length) return null;
@@ -600,25 +652,32 @@ export default function App() {
   }, [sessions, spots]);
 
   const graphData = useMemo(() => {
-    const raw = sessions.map(session => {
-      let made = 0, total = 0;
+    const raw = sessions.map((session, idx) => {
+      let percentage = 0;
+      let hasData = false;
 
       if (filterMode === 'overall') {
-        Object.values(session.data).forEach(v => made += v);
-        total = Object.keys(session.data).length * session.targetShots;
+        // כל נקודה בהיסטוריה מוצגת באחוז האפקטיבי שלה (ממוזג עם ההיסטוריה שאחריה), לא רק
+        // באחוז הגולמי של אותו אימון בלבד - אחרת אימון חלקי היה "צונח" בגרף בצורה מטעה
+        const effPerc = computeEffectivePercAtIndex(sessions, spots, idx, settings.targetShots);
+        hasData = effPerc !== null;
+        percentage = effPerc ?? 0;
       }
       else if (filterMode === 'zone') {
+        let made = 0, total = 0;
         spots.filter(s => s.group === filterZone).forEach(spot => {
           if(session.data[spot.id] !== undefined) {
             made += session.data[spot.id];
             total += session.targetShots;
           }
         });
+        hasData = total > 0;
+        percentage = total > 0 ? (made / total) * 100 : 0;
       }
       else if (filterMode === 'spot') {
-        if(session.data[filterSpot] !== undefined) {
-          made += session.data[filterSpot];
-          total = session.targetShots;
+        if (session.data[filterSpot] !== undefined) {
+          hasData = true;
+          percentage = (session.data[filterSpot] / session.targetShots) * 100;
         }
       }
 
@@ -626,28 +685,47 @@ export default function App() {
       return {
         shortDate: dateObj.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' }),
         fullDate: dateObj.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }),
-        percentage: total > 0 ? (made / total) * 100 : 0,
-        hasData: total > 0
+        percentage,
+        hasData
       };
     });
     return raw.filter(d => d.hasData);
-  }, [sessions, filterMode, filterZone, filterSpot, spots]);
+  }, [sessions, filterMode, filterZone, filterSpot, spots, settings.targetShots]);
 
   const insights = useMemo(() => {
     if (!latestSession || !stats) return [];
     const list = [];
 
-    if (comparisonSession && comparisonSessionPerc !== null) {
-      const diff = latestSessionPerc - comparisonSessionPerc;
-      const prevMA = sessionMadeAttempts(comparisonSession);
-      if (diff > 0) {
-        list.push({ type: 'up', text: `השתפרת ב-${diff}%: קלעת ${stats.lastMade}/${stats.lastShots} באימון האחרון, לעומת ${prevMA.made}/${prevMA.total} באימון הקודם. כל הכבוד!` });
-      } else if (diff < 0) {
-        list.push({ type: 'down', text: `ירדת ב-${Math.abs(diff)}%: קלעת ${stats.lastMade}/${stats.lastShots} באימון האחרון, לעומת ${prevMA.made}/${prevMA.total} באימון הקודם - זה קורה, תמשיך להתאמן.` });
-      } else {
-        list.push({ type: 'same', text: `נשארת יציב: קלעת ${stats.lastMade}/${stats.lastShots} באימון האחרון, בדיוק כמו באימון הקודם.` });
+    if (comparisonSession) {
+      // משווים רק את המקומות שבאמת נזרקו באימון האחרון, לא את הסה"כ הגולמי
+      const touchedSpotIds = Object.keys(latestSession.data).map(Number);
+      let touchedPrevMade = 0, touchedPrevAttempts = 0, touchedPrevFoundCount = 0;
+      touchedSpotIds.forEach(spotId => {
+        const prevFound = findEffectiveSpotValue(sessions, spotId, 1);
+        if (prevFound) {
+          touchedPrevMade += prevFound.value;
+          touchedPrevAttempts += (comparisonSession.targetShots || settings.targetShots);
+          touchedPrevFoundCount++;
+        }
+      });
+
+      if (touchedPrevFoundCount > 0 && effectivePrevMA && effectivePrevMA.total > 0) {
+        // חשוב: האחוז מחושב כתרומה האמיתית לתמונה הכוללת (מתוך כל הזריקות האפשריות),
+        // לא כהפרש הגולמי במקומות שנזרקו בלבד - אחרת שיפור קטן נראה כמו קפיצה דרמטית.
+        const weightedDiff = (effectiveLatestMA.made / effectiveLatestMA.total - effectivePrevMA.made / effectivePrevMA.total) * 100;
+        const diffRounded = Math.round(weightedDiff * 10) / 10;
+        const scope = latestSession.isShort ? 'במקומות שקלעת באימון הקצר' : 'באימון האחרון';
+        const scopePrev = latestSession.isShort ? 'באותם מקומות בפעם הקודמת שנזרקו' : 'באימון הקודם';
+        if (diffRounded > 0) {
+          list.push({ type: 'up', text: `השתפרת ב-${formatPerc(diffRounded)}% מהתמונה הכוללת: קלעת ${stats.lastMade}/${stats.lastShots} ${scope}, לעומת ${touchedPrevMade}/${touchedPrevAttempts} ${scopePrev}. כל הכבוד!` });
+        } else if (diffRounded < 0) {
+          list.push({ type: 'down', text: `ירדת ב-${formatPerc(Math.abs(diffRounded))}% מהתמונה הכוללת: קלעת ${stats.lastMade}/${stats.lastShots} ${scope}, לעומת ${touchedPrevMade}/${touchedPrevAttempts} ${scopePrev} - זה קורה, תמשיך להתאמן.` });
+        } else {
+          list.push({ type: 'same', text: `נשארת יציב ${scope}: קלעת ${stats.lastMade}/${stats.lastShots}, בדיוק כמו ${scopePrev}.` });
+        }
       }
 
+      // "האזור הכי השתפר" - נשאר מוגבל לאזורים שנזרקו בפועל בשני האימונים (נתונים אמיתיים בלבד)
       let bestZone = null, bestDelta = 0;
       GROUP_ORDER.forEach(g => {
         const zd = stats.zoneData[g];
@@ -664,14 +742,18 @@ export default function App() {
       list.push({ type: 'same', text: 'זהו האימון הראשון שלך שנשמר - מכאן והלאה תוכל לעקוב אחרי ההתקדמות שלך!' });
     }
 
+    // "האזור הכי חלש" דורש לפחות 2 אזורים שנזרקו באימון האחרון - אחרת סותר את "השתפר הכי הרבה"
+    const touchedZonesCount = GROUP_ORDER.filter(g => stats.zoneData[g].lastAttempts > 0).length;
     let weakZone = null, weakPerc = Infinity;
-    GROUP_ORDER.forEach(g => {
-      const zd = stats.zoneData[g];
-      if (zd.lastAttempts > 0) {
-        const lp = Math.round((zd.lastMade / zd.lastAttempts) * 100);
-        if (lp < weakPerc) { weakPerc = lp; weakZone = g; }
-      }
-    });
+    if (touchedZonesCount > 1) {
+      GROUP_ORDER.forEach(g => {
+        const zd = stats.zoneData[g];
+        if (zd.lastAttempts > 0) {
+          const lp = Math.round((zd.lastMade / zd.lastAttempts) * 100);
+          if (lp < weakPerc) { weakPerc = lp; weakZone = g; }
+        }
+      });
+    }
     if (weakZone) {
       const zd = stats.zoneData[weakZone];
       let weakText = `הכי כדאי להתמקד באזור "${weakZone}": קלעת רק ${zd.lastMade}/${zd.lastAttempts} (${weakPerc}%) באימון האחרון`;
@@ -687,7 +769,7 @@ export default function App() {
     }
 
     return list;
-  }, [latestSession, comparisonSession, comparisonSessionPerc, latestSessionPerc, stats]);
+  }, [latestSession, comparisonSession, stats, effectiveLatestMA, effectivePrevMA, sessions, settings.targetShots]);
 
   const filterModeOptions = [
     { value: 'overall', label: 'ממוצע כולל (סה"כ)' },
@@ -705,11 +787,14 @@ export default function App() {
   // משתמש ב-spots (הפריסה הפעילה בפועל, כולל מיקומים מותאמים אישית/תבניות) ובנתוני האימון
   // האחרון/ההשוואה כמו שהם - ללא לוגיקת "מיזוג אפקטיבי", כי כאן כל אימון כולל תמיד ערך מלא לכל עמדה שנזרקה בו.
   const buildProgressReportHtml = () => {
+    // המגרש בדוח משתמש בתצוגה האפקטיבית (ממוזגת) - כדי שדוח שנשלח מיד אחרי אימון קצר
+    // עדיין יראה תמונה מלאה, ולא ייראה "שבור"/חלקי לחבר שמקבל אותו
     const reportSpots = spots.map(spot => {
-      const score = latestSession?.data[spot.id];
-      if (score === undefined) return null;
-      const trend = getTrend(score, comparisonSession?.data[spot.id]);
-      return { x: spot.x, y: spot.y, score, color: trend ? TREND_COLORS[trend] : '#FFFFFF' };
+      const found = effectiveLatestMerge[spot.id];
+      if (!found) return null;
+      const priorFound = findEffectiveSpotValue(sessions, spot.id, found.idx + 1);
+      const trend = getTrend(found.value, priorFound?.value);
+      return { x: spot.x, y: spot.y, score: found.value, color: trend ? TREND_COLORS[trend] : '#FFFFFF' };
     }).filter(Boolean);
 
     const courtDotsSvg = reportSpots.map(s => `
@@ -796,7 +881,7 @@ export default function App() {
     <div class="stat-grid">
       <div class="stat-tile">
         <p class="label">אימון אחרון</p>
-        <p class="value accent">${stats.lastPerc}%</p>
+        <p class="value accent">${formatPerc(effectiveLatestPerc)}%</p>
       </div>
       <div class="stat-tile">
         <p class="label">אחוז כל הזמנים</p>
@@ -930,7 +1015,11 @@ export default function App() {
               <Trophy className="text-white w-10 h-10" />
             </div>
             <h3 className="text-2xl font-black text-white mb-1">שיא אישי חדש!</h3>
-            <p className="text-[#848B98] text-sm mb-5">האחוז הגבוה ביותר שלך אי פעם באימון שלם</p>
+            <p className="text-[#848B98] text-sm mb-5">
+              {recordCelebration.isShort
+                ? `האחוז הגבוה ביותר שלך אי פעם באימון (כולל אימון קצר - ${recordCelebration.spotsCount} מקומות)`
+                : 'האחוז הגבוה ביותר שלך אי פעם באימון שלם'}
+            </p>
             <p className="text-5xl font-black text-[#FF8A00] mb-1">{recordCelebration.perc}%</p>
             <p dir="ltr" className="text-[#848B98] text-sm mb-6">{recordCelebration.made}/{recordCelebration.total}</p>
             <button
@@ -1115,7 +1204,9 @@ export default function App() {
             <CourtView
               spots={spots}
               latestSession={courtLatestSession}
-              comparisonSession={courtComparisonSession}
+              spotsData={courtSpotsData}
+              effectivePerc={courtEffectivePerc}
+              effectiveTrend={courtEffectiveTrend}
               onSpotClick={handleSpotClick}
               isDemoData={isDemoData}
               targetShots={courtLatestSession?.targetShots || settings.targetShots}
@@ -1182,9 +1273,11 @@ export default function App() {
                   <div className="p-2 divide-y divide-[#2A2F3D]/50">
                     {groupSpots.map(spot => {
                       const val = currentInput[spot.id];
-                      const prevScore = previousSession?.data[spot.id];
+                      const prevFound = previousSessionIdx >= 0 ? findEffectiveSpotValue(sessions, spot.id, previousSessionIdx) : null;
+                      const prevScore = prevFound?.value;
                       const liveTrend = (val !== undefined && val !== '' && prevScore !== undefined) ? getTrend(val, prevScore) : null;
-                      const priorScore = priorToPreviousSession?.data[spot.id];
+                      const priorFound = prevFound ? findEffectiveSpotValue(sessions, spot.id, prevFound.idx + 1) : null;
+                      const priorScore = priorFound?.value;
                       const prevTrend = prevScore !== undefined && priorScore !== undefined ? getTrend(prevScore, priorScore) : null;
                       const prevTrendColor = prevTrend ? TREND_COLORS[prevTrend] : '#FF8A00';
 
@@ -1244,20 +1337,25 @@ export default function App() {
                 </div>
                 <div className="flex justify-between items-end relative z-10">
                   <div>
-                    <p className="text-4xl font-black leading-none" style={{ color: overallTrendColor }}>{stats.lastPerc}<span className="text-xl">%</span></p>
-                    {overallTrend && (
-                      <p className="text-[10px] font-bold mt-1 flex items-center gap-1" style={{ color: overallTrendColor }}>
-                        {overallTrend === 'up' && <><ArrowUp size={11} /> שיא חדש!</>}
-                        {overallTrend === 'down' && <><ArrowDown size={11} /> ירידה מהאימון הקודם</>}
-                        {overallTrend === 'same' && <><Minus size={11} /> ללא שינוי</>}
+                    <p className="text-4xl font-black leading-none" style={{ color: effectiveOverallTrendColor }}>{formatPerc(effectiveLatestPerc)}<span className="text-xl">%</span></p>
+                    {effectiveOverallTrend && (
+                      <p className="text-[10px] font-bold mt-1 flex items-center gap-1" style={{ color: effectiveOverallTrendColor }}>
+                        {effectiveOverallTrend === 'up' && <><ArrowUp size={11} /> {isAllTimeRecord ? 'שיא כל הזמנים!' : 'עלייה מהאימון הקודם'}</>}
+                        {effectiveOverallTrend === 'down' && <><ArrowDown size={11} /> ירידה מהאימון הקודם</>}
+                        {effectiveOverallTrend === 'same' && <><Minus size={11} /> ללא שינוי</>}
                       </p>
                     )}
                   </div>
                   <div className="text-right">
-                    <p dir="ltr" className="text-[#E0E2E7] font-bold">{stats.lastMade} / {stats.lastShots}</p>
+                    <p dir="ltr" className="text-[#E0E2E7] font-bold">{effectiveLatestMA.made} / {effectiveLatestMA.total}</p>
                     <p className="text-[#848B98] text-[10px]">קליעות מהאימון האחרון</p>
                   </div>
                 </div>
+                {latestSession.isShort && (
+                  <p className="text-[10px] text-[#FF8A00] font-bold mt-2 relative z-10">
+                    אימון קצר - {Object.keys(latestSession.data).length} מתוך {spots.length} מקומות נזרקו. התמונה למעלה משלימה מקומות שלא נזרקו מהערך האמיתי האחרון שלהם.
+                  </p>
+                )}
                 {latestSession.difficulty && latestSession.difficulty.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-3 relative z-10">
                     {latestSession.difficulty.map(id => (
@@ -1414,19 +1512,25 @@ export default function App() {
                         </div>
                       ) : (
                         <>
-                          {/* פס אימון אחרון */}
+                          {/* פס אימון אחרון - אזור שלא נזרק בפועל באימון האחרון (למשל אימון קצר) מוצג ככזה, לא כ-0% מטעה */}
                           <div className="flex items-center justify-between mb-3">
                             <div className="w-20">
                               <p className="text-[9px] text-[#848B98] font-bold uppercase">אימון אחרון</p>
-                              <p dir="ltr" className="text-[11px] text-[#A0A6B1]">{data.lastMade}/{data.lastAttempts}</p>
+                              <p dir="ltr" className="text-[11px] text-[#A0A6B1]">{data.lastAttempts > 0 ? `${data.lastMade}/${data.lastAttempts}` : '-'}</p>
                             </div>
-                            <div className="flex-1 mx-3 bg-[#0F1115] h-1.5 rounded-full overflow-hidden shadow-inner">
-                              <div className="h-full rounded-full" style={{ width: `${lastPerc}%`, backgroundColor: zoneTrendColor }} />
-                            </div>
-                            <div className="w-14 flex items-center justify-end gap-1">
-                              <span className="font-black text-xs" style={{ color: zoneTrendColor }}>{lastPerc}%</span>
-                              <TrendArrow trend={zoneTrend} size={11} />
-                            </div>
+                            {data.lastAttempts > 0 ? (
+                              <>
+                                <div className="flex-1 mx-3 bg-[#0F1115] h-1.5 rounded-full overflow-hidden shadow-inner">
+                                  <div className="h-full rounded-full" style={{ width: `${lastPerc}%`, backgroundColor: zoneTrendColor }} />
+                                </div>
+                                <div className="w-14 flex items-center justify-end gap-1">
+                                  <span className="font-black text-xs" style={{ color: zoneTrendColor }}>{lastPerc}%</span>
+                                  <TrendArrow trend={zoneTrend} size={11} />
+                                </div>
+                              </>
+                            ) : (
+                              <span className="flex-1 mx-3 text-[10px] text-[#848B98] font-bold text-center">לא נזרק באימון האחרון</span>
+                            )}
                           </div>
 
                           {/* פס כל הזמנים */}
@@ -1466,7 +1570,12 @@ export default function App() {
                   return (
                     <div key={session.id} className="bg-[#1C202A] p-4 rounded-xl border border-[#2A2F3D] flex justify-between items-center relative overflow-hidden group">
                       <div>
-                        <p className="text-white font-bold text-sm">אימון {sessions.length - idx}</p>
+                        <p className="text-white font-bold text-sm flex items-center gap-1.5">
+                          אימון {sessions.length - idx}
+                          {session.isShort && (
+                            <span className="text-[8px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] border border-[#FF8A00]/40 rounded-full px-1.5 py-0.5">אימון קצר</span>
+                          )}
+                        </p>
                         <p className="text-[10px] text-[#848B98] mt-0.5">{new Date(session.date).toLocaleString('he-IL')}</p>
                         {session.difficulty && session.difficulty.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
@@ -1540,7 +1649,12 @@ export default function App() {
                               <FileText size={14} className={noted ? 'text-[#FF8A00]' : 'text-[#596070]'} />
                             </div>
                             <div>
-                              <p className="text-white font-bold text-sm">אימון {sessions.length - idx}</p>
+                              <p className="text-white font-bold text-sm flex items-center gap-1.5">
+                                אימון {sessions.length - idx}
+                                {session.isShort && (
+                                  <span className="text-[8px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] border border-[#FF8A00]/40 rounded-full px-1.5 py-0.5">אימון קצר</span>
+                                )}
+                              </p>
                               <p className="text-[10px] text-[#848B98] mt-0.5">{new Date(session.date).toLocaleString('he-IL')}</p>
                               <p className="text-[10px] mt-0.5" style={{ color: noted ? '#FF8A00' : '#596070' }}>{noted ? 'יש הערות' : 'אין הערות עדיין'}</p>
                             </div>
@@ -1572,7 +1686,12 @@ export default function App() {
 
               <div className="bg-[#1C202A] p-4 rounded-2xl border border-[#2A2F3D] flex justify-between items-center mb-6">
                 <div>
-                  <p className="text-white font-bold text-sm">{new Date(journalSession.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' })}</p>
+                  <p className="text-white font-bold text-sm flex items-center gap-1.5">
+                    {new Date(journalSession.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' })}
+                    {journalSession.isShort && (
+                      <span className="text-[8px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] border border-[#FF8A00]/40 rounded-full px-1.5 py-0.5">אימון קצר</span>
+                    )}
+                  </p>
                   <p className="text-[10px] text-[#848B98] mt-0.5" dir="ltr">{jMade}/{jTotal} קליעות</p>
                 </div>
                 <span className="text-xl font-black" style={{ color: jTrendColor }}>{jPerc}%</span>

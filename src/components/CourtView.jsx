@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Pencil, Check, RotateCcw, Trash2, ChevronDown, Filter, LayoutTemplate, Target } from 'lucide-react';
-import { getTrend } from '../utils/trend';
 import { TREND_COLORS } from '../data/constants';
+import { formatPerc } from '../utils/format';
 import CustomDropdown from './CustomDropdown';
 import TemplatesModal from './TemplatesModal';
 
@@ -32,19 +32,12 @@ function HalfCourtMarkings({ dim }) {
   );
 }
 
-const computeSessionPerc = (session) => {
-  if (!session) return null;
-  const values = Object.values(session.data);
-  if (values.length === 0) return null;
-  const made = values.reduce((a, b) => a + b, 0);
-  const total = values.length * session.targetShots;
-  return total > 0 ? Math.round((made / total) * 100) : null;
-};
-
 export default function CourtView({
   spots,
+  spotsData,
   latestSession,
-  comparisonSession,
+  effectivePerc,
+  effectiveTrend,
   onSpotClick,
   isDemoData,
   targetShots,
@@ -76,10 +69,9 @@ export default function CourtView({
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
   }, [courtMode, editMode]);
 
-  const latestPerc = computeSessionPerc(latestSession);
-  const comparisonPerc = computeSessionPerc(comparisonSession);
-  const perTrend = getTrend(latestPerc, comparisonPerc);
-  const perTrendColor = perTrend ? TREND_COLORS[perTrend] : '#FF8A00';
+  // האחוז/מגמה של פס המצב מבוססים על "התצוגה האפקטיבית" (ממוזגת מכל ההיסטוריה הרלוונטית),
+  // לא רק על האימון האחרון הגולמי - כדי שהמגרש תמיד ייראה מלא ועדכני גם אחרי אימון קצר
+  const perTrendColor = effectiveTrend ? TREND_COLORS[effectiveTrend] : '#FF8A00';
 
   // ממיר לחיצה (בכל פיקסל, כולל בדיוק על קווי הקשתות) לקואורדינטת מגרש מדויקת -
   // המשטח מוגבל תמיד לחצי הקרוב לסל (0-125), גם במצב "מגרש מלא", כי זהו החצי היחיד עם מיקומי זריקה
@@ -105,7 +97,7 @@ export default function CourtView({
         >
           <div className="flex items-center gap-2 min-w-0">
             <span className="px-2.5 py-1 rounded-lg font-black text-sm shrink-0" style={{ backgroundColor: `${perTrendColor}22`, color: perTrendColor }}>
-              {latestPerc ?? '-'}%
+              {effectivePerc !== null && effectivePerc !== undefined ? formatPerc(effectivePerc) : '-'}%
             </span>
             <span className="text-[#848B98] text-[11px] font-medium truncate">
               {latestSession ? new Date(latestSession.date).toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric' }) : 'אין נתונים עדיין'}
@@ -242,10 +234,9 @@ export default function CourtView({
           )}
 
           {spots.map((spot) => {
-            const score = latestSession?.data[spot.id];
-            const hasScore = score !== undefined;
-            const trend = hasScore ? getTrend(score, comparisonSession?.data[spot.id]) : null;
-            const ringColor = !hasScore ? TREND_COLORS.up : (trend ? TREND_COLORS[trend] : null);
+            const d = spotsData[spot.id];
+            const hasScore = !!d;
+            const ringColor = !hasScore ? TREND_COLORS.up : (d.trend ? TREND_COLORS[d.trend] : null);
 
             return (
               <button
@@ -272,7 +263,7 @@ export default function CourtView({
                         className="relative z-10 font-black text-[10px] text-white"
                         style={{ textShadow: '0px 1px 2px rgba(0,0,0,0.95), 0px 0px 2px rgba(0,0,0,0.95)', fontFamily: 'Impact, sans-serif' }}
                       >
-                        {hasScore ? score : '-'}
+                        {hasScore ? d.score : '-'}
                       </span>
                     </>
                   )}
