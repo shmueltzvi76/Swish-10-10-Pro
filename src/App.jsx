@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell, Code2, Phone, Mail, Share2 } from 'lucide-react';
+import { Target, Plus, TrendingUp, Trophy, Flame, Settings, Trash2, Edit3, ChevronDown, BarChart2, X, Filter, Activity, Sparkles, ArrowUp, ArrowDown, Minus, BookOpen, ArrowRight, FileText, Download, Upload, Dumbbell, Code2, Phone, Mail, Share2, SlidersHorizontal } from 'lucide-react';
 
 import { getTrend } from './utils/trend';
 import { formatPerc } from './utils/format';
@@ -135,6 +135,10 @@ export default function App() {
 
   const [currentDifficulty, setCurrentDifficulty] = useState([]);
   const [showDifficultyHint, setShowDifficultyHint] = useState(() => localStorage.getItem(STORAGE_DIFFICULTY_HINT_SEEN_KEY) !== 'true');
+  const [showSessionDifficultyPanel, setShowSessionDifficultyPanel] = useState(false);
+  // תגיות אפשרות זריקה לפי מיקום ספציפי (בנוסף לתגיות הכלליות של כל האימון) - {spotId: [difficultyId, ...]}
+  const [currentSpotDifficulty, setCurrentSpotDifficulty] = useState({});
+  const [expandedSpotOptions, setExpandedSpotOptions] = useState({});
 
   const [currentInput, setCurrentInput] = useState({});
   const [editingId, setEditingId] = useState(null);
@@ -142,6 +146,8 @@ export default function App() {
   const [filterMode, setFilterMode] = useState('overall');
   const [filterZone, setFilterZone] = useState(GROUP_ORDER[0]);
   const [filterSpot, setFilterSpot] = useState(spots[0]?.id);
+  // סינון נוסף לפי אפשרות זריקה ספציפית בגרף (בנפרד מהמסננים הקיימים) - 'all' = הצגה כללית, ללא סינון
+  const [difficultyGraphFilter, setDifficultyGraphFilter] = useState('all');
 
   const [journalSessionId, setJournalSessionId] = useState(null);
   const [expandedZones, setExpandedZones] = useState({});
@@ -281,15 +287,35 @@ export default function App() {
     }
   };
 
+  const toggleSpotDifficulty = (spotId, id) => {
+    setCurrentSpotDifficulty(prev => {
+      const current = prev[spotId] || [];
+      const next = current.includes(id) ? current.filter(d => d !== id) : [...current, id];
+      if (next.length === 0) {
+        const { [spotId]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [spotId]: next };
+    });
+  };
+
+  const toggleSpotOptionsPanel = (spotId) => {
+    setExpandedSpotOptions(prev => ({ ...prev, [spotId]: !prev[spotId] }));
+  };
+
   const saveSession = () => {
     const entries = Object.entries(currentInput).filter(([, v]) => v !== '' && v !== undefined && v !== null);
     if (entries.length === 0) return;
     const cleanedInput = Object.fromEntries(entries);
+    // תגיות אפשרות-זריקה למיקום נשמרות רק עבור מיקומים שבאמת נזרקו באימון הזה
+    const cleanedSpotDifficulty = Object.fromEntries(
+      Object.entries(currentSpotDifficulty).filter(([spotId]) => cleanedInput[spotId] !== undefined)
+    );
 
     if (editingId) {
       const updatedSessions = sessions.map(s =>
         s.id === editingId
-          ? { ...s, data: cleanedInput, difficulty: currentDifficulty, isShort: spots.some(spot => cleanedInput[spot.id] === undefined) }
+          ? { ...s, data: cleanedInput, difficulty: currentDifficulty, spotDifficulty: cleanedSpotDifficulty, isShort: spots.some(spot => cleanedInput[spot.id] === undefined) }
           : s
       );
       setSessions(updatedSessions);
@@ -304,6 +330,7 @@ export default function App() {
         targetShots: settings.targetShots,
         data: cleanedInput,
         difficulty: currentDifficulty,
+        spotDifficulty: cleanedSpotDifficulty,
         ...(isShortSession ? { isShort: true, notes: { general: '<b>היום היה אימון קצר</b>', zones: {} } } : {})
       };
 
@@ -338,6 +365,8 @@ export default function App() {
     }
 
     setCurrentInput({});
+    setCurrentSpotDifficulty({});
+    setExpandedSpotOptions({});
     setEditingId(null);
     setActiveTab('stats');
   };
@@ -350,6 +379,9 @@ export default function App() {
     setEditingId(session.id);
     setCurrentInput(session.data);
     setCurrentDifficulty(session.difficulty || []);
+    setCurrentSpotDifficulty(session.spotDifficulty || {});
+    setExpandedSpotOptions({});
+    setShowSessionDifficultyPanel((session.difficulty || []).length > 0);
     setActiveTab('input');
   };
 
@@ -652,21 +684,40 @@ export default function App() {
   }, [sessions, spots]);
 
   const graphData = useMemo(() => {
+    // סינון נוסף לפי אפשרות זריקה ספציפית (תגית ברמת המיקום, לא ברמת האימון) - כשהוא פעיל,
+    // מציגים רק נתונים אמיתיים שתויגו בפועל באפשרות הזו (לא ממוזגים/מושלמים כמו בתצוגה הכללית),
+    // כי ברגע שמסננים לפי משהו ספציפי רוצים לראות בדיוק את זה ולא נתון "מנוחש"
+    const difficultyActive = difficultyGraphFilter !== 'all';
+    const matchesDifficulty = (session, spotId) =>
+      !difficultyActive || (session.spotDifficulty?.[spotId] || []).includes(difficultyGraphFilter);
+
     const raw = sessions.map((session, idx) => {
       let percentage = 0;
       let hasData = false;
 
       if (filterMode === 'overall') {
-        // כל נקודה בהיסטוריה מוצגת באחוז האפקטיבי שלה (ממוזג עם ההיסטוריה שאחריה), לא רק
-        // באחוז הגולמי של אותו אימון בלבד - אחרת אימון חלקי היה "צונח" בגרף בצורה מטעה
-        const effPerc = computeEffectivePercAtIndex(sessions, spots, idx, settings.targetShots);
-        hasData = effPerc !== null;
-        percentage = effPerc ?? 0;
+        if (!difficultyActive) {
+          // כל נקודה בהיסטוריה מוצגת באחוז האפקטיבי שלה (ממוזג עם ההיסטוריה שאחריה), לא רק
+          // באחוז הגולמי של אותו אימון בלבד - אחרת אימון חלקי היה "צונח" בגרף בצורה מטעה
+          const effPerc = computeEffectivePercAtIndex(sessions, spots, idx, settings.targetShots);
+          hasData = effPerc !== null;
+          percentage = effPerc ?? 0;
+        } else {
+          let made = 0, total = 0;
+          spots.forEach(spot => {
+            if (session.data[spot.id] !== undefined && matchesDifficulty(session, spot.id)) {
+              made += session.data[spot.id];
+              total += session.targetShots;
+            }
+          });
+          hasData = total > 0;
+          percentage = total > 0 ? (made / total) * 100 : 0;
+        }
       }
       else if (filterMode === 'zone') {
         let made = 0, total = 0;
         spots.filter(s => s.group === filterZone).forEach(spot => {
-          if(session.data[spot.id] !== undefined) {
+          if (session.data[spot.id] !== undefined && matchesDifficulty(session, spot.id)) {
             made += session.data[spot.id];
             total += session.targetShots;
           }
@@ -675,7 +726,7 @@ export default function App() {
         percentage = total > 0 ? (made / total) * 100 : 0;
       }
       else if (filterMode === 'spot') {
-        if (session.data[filterSpot] !== undefined) {
+        if (session.data[filterSpot] !== undefined && matchesDifficulty(session, filterSpot)) {
           hasData = true;
           percentage = (session.data[filterSpot] / session.targetShots) * 100;
         }
@@ -690,7 +741,7 @@ export default function App() {
       };
     });
     return raw.filter(d => d.hasData);
-  }, [sessions, filterMode, filterZone, filterSpot, spots, settings.targetShots]);
+  }, [sessions, filterMode, filterZone, filterSpot, spots, settings.targetShots, difficultyGraphFilter]);
 
   const insights = useMemo(() => {
     if (!latestSession || !stats) return [];
@@ -779,6 +830,10 @@ export default function App() {
 
   const zoneOptions = GROUP_ORDER.map(g => ({ value: g, label: g }));
   const spotOptions = spots.map(s => ({ value: s.id, label: s.name }));
+  const difficultyGraphFilterOptions = [
+    { value: 'all', label: 'הצגה כללית (כל הזריקות)' },
+    ...DIFFICULTY_MODIFIERS.map(m => ({ value: m.id, label: m.label }))
+  ];
 
   const difficultyLabel = (id) => DIFFICULTY_MODIFIERS.find(m => m.id === id)?.label || id;
 
@@ -1250,14 +1305,28 @@ export default function App() {
             </div>
 
             <div className="relative mb-6 bg-[#1C202A] rounded-2xl border border-[#2A2F3D] p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Dumbbell size={15} className="text-[#FF8A00]" />
-                <h3 className="text-white font-bold text-sm">רמת קושי לאימון הזה</h3>
-                {showDifficultyHint && (
-                  <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-pulse"></span>
-                )}
-              </div>
-              <DifficultyChips selected={currentDifficulty} onToggle={toggleDifficulty} />
+              <button
+                type="button"
+                onClick={() => setShowSessionDifficultyPanel(o => !o)}
+                className="w-full flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Dumbbell size={15} className="text-[#FF8A00]" />
+                  <h3 className="text-white font-bold text-sm">אפשרויות זריקה לאימון</h3>
+                  {showDifficultyHint && (
+                    <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-pulse"></span>
+                  )}
+                  {currentDifficulty.length > 0 && (
+                    <span className="text-[9px] font-bold bg-[#FF8A00]/15 text-[#FF8A00] px-1.5 py-0.5 rounded-full">{currentDifficulty.length} נבחרו</span>
+                  )}
+                </div>
+                <ChevronDown size={16} className={`text-[#848B98] shrink-0 transition-transform duration-300 ${showSessionDifficultyPanel ? 'rotate-180' : ''}`} />
+              </button>
+              {showSessionDifficultyPanel && (
+                <div className="mt-3 animate-in fade-in slide-in-from-top-2">
+                  <DifficultyChips selected={currentDifficulty} onToggle={toggleDifficulty} grid />
+                </div>
+              )}
             </div>
 
             <div className="space-y-6">
@@ -1284,30 +1353,55 @@ export default function App() {
                       const prevTrend = prevScore !== undefined && priorScore !== undefined ? getTrend(prevScore, priorScore) : null;
                       const prevTrendColor = prevTrend ? TREND_COLORS[prevTrend] : '#FF8A00';
 
-                      return (
-                        <div key={spot.id} className="flex items-center justify-between p-2">
-                          <div>
-                            <span className="text-[#E0E2E7] font-bold text-sm block">{spot.name}</span>
-                            {prevScore !== undefined ? (
-                              <span className="text-[10px] font-bold inline-flex items-center gap-1" style={{ color: prevTrendColor }}>
-                                {`אימון קודם: קלעת ${prevScore}`}
-                                {prevTrend === 'up' && <ArrowUp size={9} strokeWidth={3} />}
-                                {prevTrend === 'down' && <ArrowDown size={9} strokeWidth={3} />}
-                                {prevTrend === 'same' && <span className="w-1 h-1 rounded-full" style={{ backgroundColor: prevTrendColor }}></span>}
-                              </span>
-                            ) : (
-                              <span className="text-[#596070] text-[10px] font-bold">טרם הוזן בעבר</span>
-                            )}
-                          </div>
+                      const spotDiffCount = (currentSpotDifficulty[spot.id] || []).length;
 
-                          <div className="flex items-center gap-2">
-                            <TrendArrow trend={liveTrend} size={16} />
-                            <HybridInput
-                              value={val}
-                              onChange={(v) => handleInput(spot.id, v)}
-                              max={currentTargetShots}
-                            />
+                      return (
+                        <div key={spot.id}>
+                          <div className="flex items-center justify-between p-2">
+                            <div>
+                              <span className="text-[#E0E2E7] font-bold text-sm block">{spot.name}</span>
+                              {prevScore !== undefined ? (
+                                <span className="text-[10px] font-bold inline-flex items-center gap-1" style={{ color: prevTrendColor }}>
+                                  {`אימון קודם: קלעת ${prevScore}`}
+                                  {prevTrend === 'up' && <ArrowUp size={9} strokeWidth={3} />}
+                                  {prevTrend === 'down' && <ArrowDown size={9} strokeWidth={3} />}
+                                  {prevTrend === 'same' && <span className="w-1 h-1 rounded-full" style={{ backgroundColor: prevTrendColor }}></span>}
+                                </span>
+                              ) : (
+                                <span className="text-[#596070] text-[10px] font-bold">טרם הוזן בעבר</span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleSpotOptionsPanel(spot.id)}
+                                aria-label={`אפשרויות זריקה עבור ${spot.name}`}
+                                className={`relative p-1.5 rounded-lg transition-colors ${spotDiffCount > 0 ? 'text-[#FF8A00] bg-[#FF8A00]/10' : 'text-[#596070] hover:text-[#FF8A00]'}`}
+                              >
+                                <SlidersHorizontal size={14} />
+                                {spotDiffCount > 0 && (
+                                  <span className="absolute -top-0.5 -left-0.5 w-2 h-2 rounded-full bg-[#FF8A00] border border-[#1C202A]"></span>
+                                )}
+                              </button>
+                              <TrendArrow trend={liveTrend} size={16} />
+                              <HybridInput
+                                value={val}
+                                onChange={(v) => handleInput(spot.id, v)}
+                                max={currentTargetShots}
+                              />
+                            </div>
                           </div>
+                          {expandedSpotOptions[spot.id] && (
+                            <div className="px-2 pb-3 -mt-1 animate-in fade-in slide-in-from-top-1">
+                              <p className="text-[#596070] text-[9px] font-bold mb-1.5">אפשרות זריקה עבור {spot.name} בלבד</p>
+                              <DifficultyChips
+                                selected={currentSpotDifficulty[spot.id] || []}
+                                onToggle={(id) => toggleSpotDifficulty(spot.id, id)}
+                                compact
+                              />
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1464,6 +1558,13 @@ export default function App() {
                     />
                   </div>
                 )}
+
+                <CustomDropdown
+                  value={difficultyGraphFilter}
+                  options={difficultyGraphFilterOptions}
+                  onChange={setDifficultyGraphFilter}
+                  icon={Dumbbell}
+                />
               </div>
 
               <SmartLineChart data={graphData} />
